@@ -8,6 +8,7 @@
 const fs = require('fs');
 const { saveCookies, COOKIE_PATH } = require('./src/browser');
 const { writePost } = require('./src/post');
+const { ask } = require('./src/prompt');
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -19,14 +20,27 @@ const flag = (name) => process.argv.includes(`--${name}`);
   const cmd = process.argv[2];
 
   if (cmd === 'cookies') {
-    const { NID_AUT, NID_SES } = process.env;
+    // 값은 화면에 표시되지 않게 입력받는다. (환경변수로 줘도 되지만 비권장 — 노출 위험)
+    let NID_AUT = process.env.NID_AUT;
+    let NID_SES = process.env.NID_SES;
     if (!NID_AUT || !NID_SES) {
-      console.error('NID_AUT / NID_SES 환경변수를 설정하세요.');
-      console.error('추출법: 크롬 로그인 → F12 → Application → Cookies → naver.com → 필터에 NID');
+      console.log('크롬 로그인 → F12 → Application → Cookies → naver.com → 필터 NID 에서 값을 복사하세요.');
+      console.log('아래에 붙여넣고 Enter를 누르면 됩니다. (입력값은 화면에 표시되지 않습니다)\n');
+      NID_AUT = await ask('NID_AUT 붙여넣기 후 Enter: ', { hidden: true });
+      NID_SES = await ask('NID_SES 붙여넣기 후 Enter: ', { hidden: true });
+    }
+    if (!NID_AUT || !NID_SES) {
+      console.error('값이 비었습니다. 다시 실행하세요.');
+      process.exit(1);
+    }
+    if (NID_AUT.length < 20 || NID_SES.length < 20) {
+      console.error(`값이 너무 짧습니다 (AUT ${NID_AUT.length}자, SES ${NID_SES.length}자). 예시 문구가 아니라 실제 쿠키 값인지 확인하세요.`);
       process.exit(1);
     }
     const p = saveCookies({ NID_AUT, NID_SES });
-    console.log(`쿠키 저장 완료: ${p} (이 파일은 아이디+비번급 민감정보입니다. 공개 금지)`);
+    console.log(`\n쿠키 저장 완료: ${p}`);
+    console.log(`저장된 길이: NID_AUT ${NID_AUT.length}자 / NID_SES ${NID_SES.length}자`);
+    console.log('이 파일은 아이디+비번급 민감정보입니다. 공개 금지.');
     process.exit(0);
   }
 

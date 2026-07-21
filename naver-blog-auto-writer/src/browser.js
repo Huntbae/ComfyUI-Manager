@@ -13,9 +13,10 @@ const OUT_DIR = path.join(__dirname, '..', 'out');
 // 함정 4: domain/path가 빠지면 "domain/path pair" 에러로 쿠키 전체가 안 들어간다.
 // 모든 쿠키에 domain='.naver.com', path='/'를 명시해 저장한다.
 function buildCookies({ NID_AUT, NID_SES }) {
+  const clean = (v) => String(v).replace(/\s+/g, ''); // 붙여넣기 시 딸려온 공백/개행 제거
   return ['NID_AUT', 'NID_SES'].map((name) => ({
     name,
-    value: name === 'NID_AUT' ? NID_AUT : NID_SES,
+    value: name === 'NID_AUT' ? clean(NID_AUT) : clean(NID_SES),
     domain: '.naver.com',
     path: '/',
     httpOnly: true,
