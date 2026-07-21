@@ -5,8 +5,8 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const { findChromium } = require('./chromium-path');
 
-const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 const COOKIE_PATH = process.env.NAVER_COOKIE_PATH || path.join(__dirname, '..', '.auth', 'cookies.json');
 const OUT_DIR = path.join(__dirname, '..', 'out');
 
@@ -37,7 +37,7 @@ function loadCookies() {
 
 async function launch({ headful = false, record = false } = {}) {
   const browser = await chromium.launch({
-    executablePath: CHROMIUM_PATH,
+    executablePath: findChromium(),
     headless: !headful,
     args: ['--disable-blink-features=AutomationControlled'],
   });

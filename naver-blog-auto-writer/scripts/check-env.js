@@ -1,10 +1,11 @@
-// 환경 점검: Node 18+, 시스템 크로미움 구동, 녹화용 ffmpeg 존재 확인
+// 환경 점검: Node 18+, 크롬 자동 탐색·구동, 녹화용 ffmpeg 확인
 const fs = require('fs');
-const CHROMIUM_PATH = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+const { findChromium } = require('../src/chromium-path');
 
 const major = Number(process.versions.node.split('.')[0]);
 if (major < 18) {
   console.error(`Node 18 이상이 필요합니다. 현재: v${process.versions.node}`);
+  console.error('https://nodejs.org 에서 LTS 버전을 설치하세요.');
   process.exit(1);
 }
 console.log(`Node OK: v${process.versions.node}`);
@@ -12,18 +13,19 @@ console.log(`Node OK: v${process.versions.node}`);
 const { chromium } = require('playwright-core');
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: CHROMIUM_PATH, headless: true });
-  console.log(`Chromium OK: ${browser.version()} (${CHROMIUM_PATH})`);
+  const chromePath = findChromium();
+  const browser = await chromium.launch({ executablePath: chromePath, headless: true });
+  console.log(`Chromium OK: ${browser.version()} (${chromePath})`);
   await browser.close();
 
-  // 함정 5: 녹화는 playwright 번들 ffmpeg 필요
+  // 녹화는 playwright 번들 ffmpeg 필요 (없어도 글쓰기는 동작, 녹화만 꺼짐)
   const pwDir = process.env.PLAYWRIGHT_BROWSERS_PATH || '';
   const hasFfmpeg =
-    (pwDir && fs.readdirSync(pwDir).some((d) => d.startsWith('ffmpeg'))) || false;
+    (pwDir && fs.existsSync(pwDir) && fs.readdirSync(pwDir).some((d) => d.startsWith('ffmpeg'))) || false;
   console.log(hasFfmpeg
     ? 'ffmpeg OK: 녹화 가능'
-    : 'ffmpeg 없음: 녹화하려면 시스템 ffmpeg를 심볼릭 링크로 연결하세요 (README 참고)');
+    : 'ffmpeg 미확인: 녹화가 안 되면 --no-record 옵션으로 실행하세요');
 })().catch((e) => {
-  console.error('Chromium 구동 실패:', e.message);
+  console.error('점검 실패:', e.message);
   process.exit(1);
 });
