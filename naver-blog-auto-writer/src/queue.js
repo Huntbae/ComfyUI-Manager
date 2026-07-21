@@ -14,8 +14,9 @@ function readJson(p, fallback) {
 
 function loadConfig() {
   const c = readJson(CONFIG_PATH, {});
-  // sourceDir가 상대경로면 프로젝트 기준으로 절대경로화
+  // 상대경로면 프로젝트 기준으로 절대경로화 (실행 위치와 무관하게 동작)
   if (c.sourceDir && !path.isAbsolute(c.sourceDir)) c.sourceDir = path.resolve(ROOT, c.sourceDir);
+  if (c.imagedir && !path.isAbsolute(c.imagedir)) c.imagedir = path.resolve(ROOT, c.imagedir);
   return c;
 }
 

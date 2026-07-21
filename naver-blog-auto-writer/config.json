@@ -1,6 +1,6 @@
 {
   "sourceDir": "./articles",
   "blogId": "edukart",
-  "imagedir": "/Users/hunt.bae/Library/CloudStorage/GoogleDrive-huntbae@huntbae.com/내 드라이브/Work Files/클랜헌트/_콘텐츠자동화/output",
+  "imagedir": "./images",
   "imageExts": [".jpg", ".jpeg", ".png", ".webp", ".gif"]
 }
