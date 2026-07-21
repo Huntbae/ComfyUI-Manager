@@ -42,12 +42,41 @@ async function insertImage(page, imagePath) {
   await page.waitForTimeout(3_000); // 업로드 완료 대기
 }
 
+// 실전 함정 7: 에디터 "도움말" 패널이 저장/툴바 버튼 위를 덮어 클릭을 가로챈다.
+// 저장·이미지 삽입 전에 떠 있는 도움말/온보딩 패널을 닫는다.
+async function closeHelpPanel(page) {
+  // 1) 알려진 닫기 버튼들 시도
+  const closeSelectors = [
+    '.se-help-panel-close-button',
+    'button[class*="help"][class*="close"]',
+    '.se-help-panel button[class*="close"]',
+    'button[aria-label="닫기"]',
+  ];
+  for (const sel of closeSelectors) {
+    const btn = page.locator(sel).first();
+    if (await btn.count().catch(() => 0)) {
+      await btn.click({ timeout: 2_000 }).catch(() => {});
+    }
+  }
+  // 2) 그래도 도움말 패널이 남아 있으면 ESC로 닫기 시도
+  if (await page.locator('.se-help-title').count().catch(() => 0)) {
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(300);
+  }
+}
+
 // 임시저장: 상단 "저장" 버튼 (발행 버튼은 절대 누르지 않는다)
 async function tempSave(page) {
+  await closeHelpPanel(page); // 오버레이 먼저 제거
   const save = page.locator(
-    '[data-click-area="tpb.save"], button:has-text("저장")',
+    '[data-click-area="tpb.save"], button.save_btn__bzc5B, button:has-text("저장")',
   ).first();
-  await save.click();
+  try {
+    await save.click({ timeout: 10_000 });
+  } catch {
+    // 오버레이가 여전히 가로채면, 정확히 resolve된 저장 버튼에 강제 클릭
+    await save.click({ force: true, timeout: 10_000 });
+  }
   await page.waitForTimeout(2_000);
 }
 
@@ -66,6 +95,7 @@ async function writePost({ blogId, title, content, images = [], headful = false,
 
     await page.waitForSelector('.se-section-documentTitle', { timeout: 30_000 });
     await dismissRecoveryPopup(page);
+    await closeHelpPanel(page); // 도움말 온보딩 패널이 떠 있으면 닫기 (함정 7)
 
     // 제목
     await page.locator('.se-section-documentTitle .se-text-paragraph').first().click();
