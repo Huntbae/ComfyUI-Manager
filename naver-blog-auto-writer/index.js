@@ -9,6 +9,7 @@ const fs = require('fs');
 const { saveCookies, COOKIE_PATH } = require('./src/browser');
 const { writePost } = require('./src/post');
 const { ask } = require('./src/prompt');
+const queue = require('./src/queue');
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -74,6 +75,38 @@ const flag = (name) => process.argv.includes(`--${name}`);
     process.exit(r.ok ? 0 : 1);
   }
 
-  console.error('알 수 없는 명령입니다. cookies 또는 post를 사용하세요.');
+  // "다음" 한 방: 다음 미게시 글을 골라 이미지 넣어 임시저장하고 진행 기록까지.
+  if (cmd === 'next' || cmd === '다음') {
+    const nx = queue.getNext();
+    if (nx.error) {
+      console.error(`설정 오류: ${nx.hint || nx.error}`);
+      process.exit(1);
+    }
+    if (nx.done) {
+      console.log(`🎉 준비된 글을 모두 게시했습니다 (총 ${nx.total}편). 새 글감을 요청하세요.`);
+      process.exit(0);
+    }
+    console.log(`오늘의 글: 「${nx.title}」 (남은 ${nx.remaining}편)`);
+    const r = await writePost({
+      blogId: nx.config.blogId,
+      title: nx.title,
+      content: nx.body,
+      imagedir: nx.config.imagedir || '',
+      headful: flag('headful'),
+      record: !flag('no-record') && flag('record'), // 기본 녹화 off (ffmpeg 없어도 동작)
+    });
+    if (r.ok) {
+      const count = queue.markDone(nx.file);
+      console.log(`✅ 임시저장 완료 — 「${nx.title}」`);
+      console.log(`   누적 ${count}편 / 남은 ${nx.remaining - 1}편`);
+      console.log(`   네이버에서 확인: https://blog.naver.com/${nx.config.blogId} → 글쓰기 → 저장된 글`);
+      process.exit(0);
+    }
+    console.error(`❌ 게시 실패: ${r.reason || ''} ${r.hint || ''}`);
+    console.error('(실패 시 이 글은 다음에 다시 시도됩니다)');
+    process.exit(1);
+  }
+
+  console.error('알 수 없는 명령입니다. cookies / post / next(다음) 중 하나를 사용하세요.');
   process.exit(1);
 })();

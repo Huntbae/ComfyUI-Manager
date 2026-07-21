@@ -1,5 +1,6 @@
 {
-  "sourceDir": "여기에_클랜헌트_폴더_절대경로를_넣으세요",
+  "sourceDir": "./articles",
   "blogId": "edukart",
+  "imagedir": "/Users/hunt.bae/Library/CloudStorage/GoogleDrive-huntbae@huntbae.com/내 드라이브/Work Files/클랜헌트/_콘텐츠자동화/output",
   "imageExts": [".jpg", ".jpeg", ".png", ".webp", ".gif"]
 }
