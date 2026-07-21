@@ -21,12 +21,12 @@ echo "[1/4] 의존성 설치..."
 npm install --silent
 
 echo ""
-echo "[2/4] 네이버 쿠키 확인..."
-if [ ! -f ".auth/cookies.json" ]; then
-  echo "쿠키가 없습니다. 지금 저장합니다. (값은 화면에 표시되지 않습니다)"
-  "$NODE" index.js cookies
+echo "[2/4] 네이버 로그인 확인..."
+if [ ! -d ".chrome-profile" ]; then
+  echo "전용 크롬 프로필이 없습니다. 창이 열리면 네이버에 로그인하세요. (딱 한 번)"
+  "$NODE" index.js login
 else
-  echo "이미 저장돼 있습니다. (건너뜀)"
+  echo "이미 로그인 프로필이 있습니다. (건너뜀)"
 fi
 
 echo ""

@@ -105,62 +105,88 @@ async function tempSave(page) {
 // 그 위치(문맥)에 해당 이미지를 삽입한다. imagedir 기준으로 파일을 찾는다.
 const IMG_MARKER = /^\s*\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]\s*$/i;
 
+// 에디터에 제목·본문·이미지를 채우고 임시저장한다 (브라우저 진입 이후 공통 로직).
+async function fillEditor(page, { title, content, images = [], imagedir = '' }) {
+  await page.waitForSelector('.se-section-documentTitle', { timeout: 30_000 });
+  await dismissRecoveryPopup(page);
+  await closeHelpPanel(page); // 도움말 온보딩 패널 닫기 (함정 7)
+
+  await page.locator('.se-section-documentTitle .se-text-paragraph').first().click();
+  await humanType(page, title);
+
+  // 본문 — [[img:파일]] 마커는 그 위치(문맥)에 이미지 삽입, 그 외는 타이핑
+  await page.locator('.se-component.se-text .se-text-paragraph').last().click();
+  const usedMarkers = new Set();
+  for (const rawLine of content.split('\n')) {
+    const m = rawLine.match(IMG_MARKER);
+    if (m) {
+      const imgPath = imagedir ? path.resolve(imagedir, m[1]) : m[1];
+      if (fs.existsSync(imgPath)) {
+        await insertImage(page, imgPath);
+        usedMarkers.add(path.basename(imgPath));
+      }
+      continue;
+    }
+    await humanType(page, rawLine);
+    await page.keyboard.press('Enter');
+  }
+  for (const img of images) {
+    if (!usedMarkers.has(path.basename(img)) && fs.existsSync(img)) {
+      await insertImage(page, img);
+    }
+  }
+  await tempSave(page);
+}
+
+// 방식 A: NID 쿠키 사용 (구버전 호환)
 async function writePost({
   blogId, title, content, images = [], imagedir = '', headful = false, record = true,
 }) {
   const { browser, context, hasCookies } = await launch({ headful, record });
   if (!hasCookies) {
     await browser.close();
-    return { ok: false, reason: 'no_cookies', hint: '먼저 node index.js cookies 로 NID 쿠키를 저장하세요' };
+    return { ok: false, reason: 'no_cookies', hint: '먼저 쿠키를 저장하거나 프로필 로그인(node index.js login)을 하세요' };
   }
   const page = await context.newPage();
   try {
     await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
     if (page.url().includes('nidlogin')) {
-      return { ok: false, reason: 'cookie_expired', hint: 'NID 쿠키가 만료되었습니다. 다시 추출해 저장하세요' };
+      return { ok: false, reason: 'cookie_expired', hint: 'NID 쿠키가 만료되었습니다' };
     }
-
-    await page.waitForSelector('.se-section-documentTitle', { timeout: 30_000 });
-    await dismissRecoveryPopup(page);
-    await closeHelpPanel(page); // 도움말 온보딩 패널이 떠 있으면 닫기 (함정 7)
-
-    // 제목
-    await page.locator('.se-section-documentTitle .se-text-paragraph').first().click();
-    await humanType(page, title);
-
-    // 본문 — 한 줄씩 처리. [[img:파일]] 마커는 그 위치(문맥)에 이미지 삽입,
-    // 그 외 줄은 사람 속도로 타이핑. 빈 줄은 문단 나눔(Enter).
-    await page.locator('.se-component.se-text .se-text-paragraph').last().click();
-    const usedMarkers = new Set();
-    for (const rawLine of content.split('\n')) {
-      const m = rawLine.match(IMG_MARKER);
-      if (m) {
-        const name = m[1];
-        const imgPath = imagedir ? path.resolve(imagedir, name) : name;
-        if (fs.existsSync(imgPath)) {
-          await insertImage(page, imgPath);
-          usedMarkers.add(path.basename(imgPath));
-        } // 파일이 없으면 조용히 건너뜀 (마커 오타 방지)
-        continue;
-      }
-      await humanType(page, rawLine);
-      await page.keyboard.press('Enter');
-    }
-    // --images로 넘어온 이미지 중 본문 마커로 안 쓰인 것은 글 끝에 추가
-    for (const img of images) {
-      if (!usedMarkers.has(path.basename(img)) && fs.existsSync(img)) {
-        await insertImage(page, img);
-      }
-    }
-
-    await tempSave(page);
-
+    await fillEditor(page, { title, content, images, imagedir });
     const video = record ? await page.video()?.path() : null;
     return { ok: true, saved: true, published: false, video };
   } finally {
-    await context.close(); // 녹화 파일은 context close 시점에 저장된다
+    await context.close();
     await browser.close();
   }
 }
 
-module.exports = { writePost, OUT_DIR };
+// 방식 B(권장): 로그인된 전용 크롬 프로필 재사용 — 쿠키 추출 불필요.
+// 프로필에 네이버 로그인이 안 돼 있으면, headful일 때 사람이 로그인할 때까지 대기.
+async function writePostProfile({
+  blogId, title, content, images = [], imagedir = '', headful = false, record = false,
+}) {
+  const { launchPersistent } = require('./browser');
+  const { context } = await launchPersistent({ headful, record });
+  const page = context.pages()[0] || (await context.newPage());
+  try {
+    await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
+    if (page.url().includes('nidlogin')) {
+      if (!headful) {
+        return { ok: false, reason: 'need_login', hint: 'node index.js login 으로 이 프로필에 네이버 로그인을 한 번 해주세요' };
+      }
+      // 사람이 직접 로그인할 때까지 대기 (최대 3분)
+      await page.waitForURL((u) => !u.href.includes('nidlogin'), { timeout: 180_000 });
+      await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
+    }
+    await fillEditor(page, { title, content, images, imagedir });
+    return { ok: true, saved: true, published: false };
+  } catch (e) {
+    return { ok: false, reason: 'error', hint: e.message.split('\n')[0] };
+  } finally {
+    await context.close();
+  }
+}
+
+module.exports = { writePost, writePostProfile, OUT_DIR };

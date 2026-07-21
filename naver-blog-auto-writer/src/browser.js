@@ -67,4 +67,21 @@ async function launch({ headful = false, record = false } = {}) {
   return { browser, context, hasCookies: !!cookies };
 }
 
-module.exports = { launch, saveCookies, loadCookies, COOKIE_PATH, OUT_DIR };
+// 로그인된 전용 크롬 프로필을 재사용하는 persistent 컨텍스트.
+// 이 프로필에 네이버 로그인을 한 번 해두면 이후 로그인 상태가 유지된다.
+const PROFILE_DIR = process.env.NAVER_PROFILE_DIR || path.join(__dirname, '..', '.chrome-profile');
+
+async function launchPersistent({ headful = false, record = false } = {}) {
+  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+    executablePath: findChromium(),
+    headless: !headful,
+    locale: 'ko-KR',
+    timezoneId: 'Asia/Seoul',
+    viewport: { width: 1280, height: 900 },
+    args: ['--disable-blink-features=AutomationControlled'],
+    ...(record ? { recordVideo: { dir: OUT_DIR, size: { width: 1280, height: 900 } } } : {}),
+  });
+  return { context, profileDir: PROFILE_DIR };
+}
+
+module.exports = { launch, launchPersistent, saveCookies, loadCookies, COOKIE_PATH, OUT_DIR, PROFILE_DIR };

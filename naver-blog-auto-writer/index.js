@@ -6,8 +6,8 @@
 //
 // 발행은 하지 않는다 — 임시저장까지만. 발행은 사람이 검토 후 직접 누른다.
 const fs = require('fs');
-const { saveCookies, COOKIE_PATH } = require('./src/browser');
-const { writePost } = require('./src/post');
+const { saveCookies, COOKIE_PATH, launchPersistent } = require('./src/browser');
+const { writePost, writePostProfile } = require('./src/post');
 const { ask } = require('./src/prompt');
 const queue = require('./src/queue');
 
@@ -75,6 +75,25 @@ const flag = (name) => process.argv.includes(`--${name}`);
     process.exit(r.ok ? 0 : 1);
   }
 
+  // 프로필 로그인: 전용 크롬 프로필을 열어 네이버에 한 번만 로그인해 둔다.
+  if (cmd === 'login') {
+    console.log('전용 크롬 프로필을 엽니다. 창에서 네이버에 로그인하세요. (한 번만)');
+    console.log('로그인이 끝나면 이 창은 자동으로 닫힙니다...');
+    const { context } = await launchPersistent({ headful: true });
+    const page = context.pages()[0] || (await context.newPage());
+    await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'domcontentloaded' });
+    try {
+      // 로그인 완료(로그인 페이지를 벗어남)까지 최대 5분 대기
+      await page.waitForURL((u) => !u.href.includes('nidlogin'), { timeout: 300_000 });
+      console.log('✅ 로그인 확인. 이제 node index.js next 로 자동 게시할 수 있습니다.');
+    } catch {
+      console.log('⏱ 시간이 초과됐습니다. 다시 시도하세요.');
+    } finally {
+      await context.close();
+    }
+    process.exit(0);
+  }
+
   // "다음" 한 방: 다음 미게시 글을 골라 이미지 넣어 임시저장하고 진행 기록까지.
   if (cmd === 'next' || cmd === '다음') {
     const nx = queue.getNext();
@@ -87,13 +106,13 @@ const flag = (name) => process.argv.includes(`--${name}`);
       process.exit(0);
     }
     console.log(`오늘의 글: 「${nx.title}」 (남은 ${nx.remaining}편)`);
-    const r = await writePost({
+    const r = await writePostProfile({
       blogId: nx.config.blogId,
       title: nx.title,
       content: nx.body,
       imagedir: nx.config.imagedir || '',
       headful: flag('headful'),
-      record: !flag('no-record') && flag('record'), // 기본 녹화 off (ffmpeg 없어도 동작)
+      record: flag('record'),
     });
     if (r.ok) {
       const count = queue.markDone(nx.file);
@@ -107,6 +126,6 @@ const flag = (name) => process.argv.includes(`--${name}`);
     process.exit(1);
   }
 
-  console.error('알 수 없는 명령입니다. cookies / post / next(다음) 중 하나를 사용하세요.');
+  console.error('알 수 없는 명령입니다. login / next(다음) / cookies / post 중 하나를 사용하세요.');
   process.exit(1);
 })();
