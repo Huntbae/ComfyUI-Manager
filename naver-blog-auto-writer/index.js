@@ -52,7 +52,9 @@ const flag = (name) => process.argv.includes(`--${name}`);
       console.error('필수 인자: --blog <blogId> --title "제목" --file <본문파일>');
       process.exit(1);
     }
-    const images = (arg('images') || '').split(',').filter(Boolean);
+    const imagedir = arg('imagedir') || '';
+    const images = (arg('images') || '').split(',').filter(Boolean).map((p) =>
+      imagedir && !fs.existsSync(p) ? require('path').resolve(imagedir, p) : p);
     for (const img of images) {
       if (!fs.existsSync(img)) {
         console.error(`이미지 파일 없음: ${img}`);
@@ -64,6 +66,7 @@ const flag = (name) => process.argv.includes(`--${name}`);
       title,
       content: fs.readFileSync(file, 'utf8'),
       images,
+      imagedir,
       headful: flag('headful'),
       record: !flag('no-record'),
     });

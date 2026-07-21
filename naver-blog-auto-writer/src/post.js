@@ -101,7 +101,13 @@ async function tempSave(page) {
   await page.waitForTimeout(2_000);
 }
 
-async function writePost({ blogId, title, content, images = [], headful = false, record = true }) {
+// 본문 안의 이미지 마커: 한 줄이 [[img:파일명]] 또는 [[image:파일명]] 이면
+// 그 위치(문맥)에 해당 이미지를 삽입한다. imagedir 기준으로 파일을 찾는다.
+const IMG_MARKER = /^\s*\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]\s*$/i;
+
+async function writePost({
+  blogId, title, content, images = [], imagedir = '', headful = false, record = true,
+}) {
   const { browser, context, hasCookies } = await launch({ headful, record });
   if (!hasCookies) {
     await browser.close();
@@ -122,22 +128,30 @@ async function writePost({ blogId, title, content, images = [], headful = false,
     await page.locator('.se-section-documentTitle .se-text-paragraph').first().click();
     await humanType(page, title);
 
-    // 본문 — 문단 단위로 타이핑, 문단 사이에 이미지를 순서대로 삽입
+    // 본문 — 한 줄씩 처리. [[img:파일]] 마커는 그 위치(문맥)에 이미지 삽입,
+    // 그 외 줄은 사람 속도로 타이핑. 빈 줄은 문단 나눔(Enter).
     await page.locator('.se-component.se-text .se-text-paragraph').last().click();
-    const paragraphs = content.split(/\n{2,}/);
-    let imgIdx = 0;
-    for (let i = 0; i < paragraphs.length; i++) {
-      for (const line of paragraphs[i].split('\n')) {
-        await humanType(page, line);
-        await page.keyboard.press('Enter');
+    const usedMarkers = new Set();
+    for (const rawLine of content.split('\n')) {
+      const m = rawLine.match(IMG_MARKER);
+      if (m) {
+        const name = m[1];
+        const imgPath = imagedir ? path.resolve(imagedir, name) : name;
+        if (fs.existsSync(imgPath)) {
+          await insertImage(page, imgPath);
+          usedMarkers.add(path.basename(imgPath));
+        } // 파일이 없으면 조용히 건너뜀 (마커 오타 방지)
+        continue;
       }
+      await humanType(page, rawLine);
       await page.keyboard.press('Enter');
-      if (imgIdx < images.length && i < paragraphs.length - 1) {
-        await insertImage(page, images[imgIdx++]);
+    }
+    // --images로 넘어온 이미지 중 본문 마커로 안 쓰인 것은 글 끝에 추가
+    for (const img of images) {
+      if (!usedMarkers.has(path.basename(img)) && fs.existsSync(img)) {
+        await insertImage(page, img);
       }
     }
-    // 문단 수보다 이미지가 많으면 나머지는 끝에 몰아서 삽입
-    while (imgIdx < images.length) await insertImage(page, images[imgIdx++]);
 
     await tempSave(page);
 
