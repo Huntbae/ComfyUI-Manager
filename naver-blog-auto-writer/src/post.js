@@ -18,18 +18,39 @@ async function humanType(page, text) {
   }
 }
 
-// 함정 1+3: "작성 중인 글 복구" 팝업은 팝업 내부에서만, 텍스트 정확 일치로
-// "취소"를 눌러야 한다. 부분 일치로 찾으면 툴바의 "취소선"을 눌러
-// 본문 전체가 취소선으로 써지는 사고가 난다.
+// 함정 1+3: "작성 중인 글 복구" 확인 팝업(se-popup-alert-confirm)은
+// 팝업 내부의 취소 버튼(.se-popup-button-cancel)만 정확히 눌러야 한다.
+// (부분 일치로 찾으면 툴바의 "취소선"을 눌러 본문이 전부 취소선이 되는 사고)
+// 팝업은 로드 직후 살짝 늦게 뜰 수 있어 dim 오버레이가 사라질 때까지 재확인한다.
 async function dismissRecoveryPopup(page) {
-  const popup = page.locator('.se-popup-container, [class*="popup"]').first();
-  const cancel = popup.getByText('취소', { exact: true }); // text-is
-  try {
-    await cancel.click({ timeout: 5_000 });
-    return true;
-  } catch {
-    return false; // 팝업이 안 떴으면 정상 진행
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const dim = page.locator('.se-popup-dim');
+    const popup = page
+      .locator('.se-popup-alert-confirm, [data-name*="se-popup-alert"], .se-popup')
+      .first();
+
+    if (!(await popup.count().catch(() => 0)) && !(await dim.count().catch(() => 0))) {
+      if (attempt === 0) {
+        await page.waitForTimeout(700); // 아직 안 떴을 수 있으니 한 번 더 기다림
+        continue;
+      }
+      return true; // 팝업 없음 = 정상 진행
+    }
+
+    // 취소 버튼(=새로 쓰기)만 정확히 클릭
+    const cancelBtn = popup.locator('.se-popup-button-cancel').first();
+    if (await cancelBtn.count().catch(() => 0)) {
+      await cancelBtn.click({ timeout: 3_000 }).catch(() => {});
+    } else {
+      const byText = popup.getByText('취소', { exact: true }).first();
+      if (await byText.count().catch(() => 0)) {
+        await byText.click({ timeout: 3_000 }).catch(() => {});
+      }
+    }
+    await page.waitForTimeout(500);
+    if (!(await dim.count().catch(() => 0))) return true; // 오버레이 사라짐 = 성공
   }
+  return false;
 }
 
 // 이미지 삽입: 툴바 사진 버튼 → 파일 선택 다이얼로그에 파일 전달
