@@ -62,14 +62,17 @@ const flag = (name) => process.argv.includes(`--${name}`);
         process.exit(1);
       }
     }
-    const r = await writePost({
+    // 기본은 프로필 방식(node index.js login으로 저장한 로그인 재사용).
+    // --cookies 를 주면 예전 NID 쿠키 방식으로 동작한다.
+    const run = flag('cookies') ? writePost : writePostProfile;
+    const r = await run({
       blogId,
       title,
       content: fs.readFileSync(file, 'utf8'),
       images,
       imagedir,
       headful: flag('headful'),
-      record: !flag('no-record'),
+      record: flag('record'),
     });
     console.log(JSON.stringify(r, null, 2));
     process.exit(r.ok ? 0 : 1);
