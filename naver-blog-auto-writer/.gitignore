@@ -2,3 +2,5 @@ node_modules/
 .auth/
 out/
 .chrome-profile/
+images_src/
+images_prev/
