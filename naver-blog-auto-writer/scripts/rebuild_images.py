@@ -6,12 +6,14 @@ images/ 를 다시 채우고, articles/ 의 [[img:...]] 마커를 겹치지 않�
 - eDu Kart 편(홀수)에는 에듀카트 Ver.4/Ver.5 계열 사진만
 - 칼리 편(짝수)에는 칼리·뉴트로엠 계열 사진만
 - 같은 이미지를 두 번 이상 쓰지 않는다 (한 편당 2장, 20편 = 40장 전부 서로 다름)
+- 출처가 제각각인 사진을 810×608(4:3) 한 규격, 한 톤으로 맞춘다
 
-의존성 없음. 리사이즈는 macOS 기본 도구 sips 를 쓴다.
+Pillow가 있으면 쓰고, 없으면 macOS 기본 도구 sips로 넘어간다. 둘 다 없으면 원본을 복사한다.
 
 사용법:
     python3 scripts/rebuild_images.py --dry-run   # 무엇을 쓸지 확인만
-    python3 scripts/rebuild_images.py             # 실제 수집 + 마커 재배정
+    python3 scripts/rebuild_images.py             # 수집 + 규격·톤 통일 + 마커 재배정
+    python3 scripts/rebuild_images.py --no-style  # 규격·톤 손대지 않고 가로폭만
 
 Ver.5 사진을 따로 갖고 계시면 images_src/edukart_v5/ 에 넣어두면 우선 사용된다.
 """
@@ -29,6 +31,12 @@ ARTICLES = ROOT / "articles"
 IMAGES = ROOT / "images"
 LOCAL_SRC = ROOT / "images_src"          # 사용자가 직접 넣어두는 추가 사진
 TARGET_WIDTH = 810                        # 카드 이미지와 같은 가로폭(75% 기준)
+TARGET_HEIGHT = 608                       # 4:3 — 40장을 같은 규격으로 통일
+# 톤 보정값. 출처가 제각각인 사진을 한 시리즈처럼 보이게 하는 정도만 건드린다.
+TONE = {"contrast": 1.06, "saturation": 0.94, "brightness": 1.02}
+# 4:3로 자를 때 이만큼 넘게 잘려나가면 자르지 않고 여백을 채운다
+# (카드뉴스처럼 글자가 든 세로 이미지를 보호하기 위한 기준)
+MAX_CROP_LOSS = 0.25
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
 MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]", re.I)
 
@@ -134,25 +142,99 @@ def spread(paths, count):
     return [paths[int(i * step)] for i in range(count)]
 
 
-def convert(src, dst):
-    """dst(png)로 복사하고 가로 TARGET_WIDTH로 축소한다. 실패하면 원본 복사."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    try:
+def edge_color(im):
+    """이미지 가장자리 평균색 — 여백을 채울 때 이질감이 덜하다."""
+    w, h = im.size
+    px = im.convert("RGB").load()
+    step = max(1, w // 40)
+    samples = [px[x, 0] for x in range(0, w, step)]
+    samples += [px[x, h - 1] for x in range(0, w, step)]
+    n = len(samples)
+    return tuple(sum(c[i] for c in samples) // n for i in range(3))
+
+
+def convert_pillow(src, dst, style=True):
+    """Pillow가 있으면 4:3 중앙 크롭 + 톤 통일까지 한다."""
+    from PIL import Image, ImageEnhance
+
+    im = Image.open(src)
+    if im.mode not in ("RGB", "L"):
+        im = im.convert("RGB")
+    elif im.mode == "L":
+        im = im.convert("RGB")
+
+    if style:
+        want = TARGET_WIDTH / TARGET_HEIGHT
+        w, h = im.size
+        # 4:3로 맞추려면 얼마나 잘라내야 하는지 먼저 따진다.
+        keep = (h * want) / w if w / h > want else (w / want) / h
+        if keep >= 1 - MAX_CROP_LOSS:
+            # 손실이 작으면 중앙 크롭 (사진에 적합)
+            if w / h > want:
+                new_w = int(h * want)
+                left = (w - new_w) // 2
+                im = im.crop((left, 0, left + new_w, h))
+            else:
+                new_h = int(w / want)
+                top = (h - new_h) // 2
+                im = im.crop((0, top, w, top + new_h))
+            im = im.resize((TARGET_WIDTH, TARGET_HEIGHT), Image.LANCZOS)
+        else:
+            # 손실이 크면 자르지 않고 축소해 넣는다.
+            # 카드뉴스처럼 글자가 있는 세로 이미지를 잘라먹지 않기 위한 처리.
+            im.thumbnail((TARGET_WIDTH, TARGET_HEIGHT), Image.LANCZOS)
+            canvas = Image.new("RGB", (TARGET_WIDTH, TARGET_HEIGHT), edge_color(im))
+            canvas.paste(im, ((TARGET_WIDTH - im.width) // 2,
+                              (TARGET_HEIGHT - im.height) // 2))
+            im = canvas
+        im = ImageEnhance.Contrast(im).enhance(TONE["contrast"])
+        im = ImageEnhance.Color(im).enhance(TONE["saturation"])
+        im = ImageEnhance.Brightness(im).enhance(TONE["brightness"])
+    else:
+        w, h = im.size
+        im = im.resize((TARGET_WIDTH, max(1, round(h * TARGET_WIDTH / w))), Image.LANCZOS)
+
+    im.save(dst, "PNG")
+    return True
+
+
+def convert_sips(src, dst, style=True):
+    """Pillow가 없을 때 macOS 기본 도구로 처리한다. 톤 보정은 생략된다."""
+    subprocess.run(
+        ["sips", "-s", "format", "png", str(src), "--out", str(dst)],
+        check=True, capture_output=True,
+    )
+    if style:
+        # -c 는 중앙 기준 크롭(높이 너비 순)
         subprocess.run(
-            ["sips", "-s", "format", "png", str(src), "--out", str(dst)],
+            ["sips", "--resampleHeightWidthMax", str(max(TARGET_WIDTH, TARGET_HEIGHT) * 2), str(dst)],
             check=True, capture_output=True,
         )
+        subprocess.run(
+            ["sips", "-c", str(TARGET_HEIGHT), str(TARGET_WIDTH), str(dst)],
+            check=True, capture_output=True,
+        )
+    else:
         subprocess.run(
             ["sips", "--resampleWidth", str(TARGET_WIDTH), str(dst)],
             check=True, capture_output=True,
         )
-        return True
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    return True
+
+
+def convert(src, dst, style=True):
+    """규격·톤을 맞춰 dst(png)로 만든다. 단계적으로 폴백한다."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    for fn in (convert_pillow, convert_sips):
         try:
-            shutil.copy2(src, dst)
-            return True
-        except OSError:
-            return False
+            return fn(src, dst, style)
+        except Exception:
+            continue
+    try:
+        shutil.copy2(src, dst)
+        return True
+    except OSError:
+        return False
 
 
 def article_files():
@@ -165,6 +247,8 @@ def article_files():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="수집·재배정 계획만 출력")
+    ap.add_argument("--no-style", action="store_true",
+                    help="4:3 통일·톤 보정 없이 가로폭만 맞춘다")
     args = ap.parse_args()
 
     arts = article_files()
@@ -258,9 +342,10 @@ def main():
     made = 0
     for _, picks in plan:
         for src, dst_name in picks:
-            if src and convert(src, IMAGES / dst_name):
+            if src and convert(src, IMAGES / dst_name, style=not args.no_style):
                 made += 1
-    print(f"이미지 {made}장 생성 완료 → {IMAGES}")
+    spec = "가로 810px" if args.no_style else f"{TARGET_WIDTH}×{TARGET_HEIGHT} (4:3) + 톤 통일"
+    print(f"이미지 {made}장 생성 완료 [{spec}] → {IMAGES}")
 
     # 원고 마커 재작성
     for path, picks in plan:
