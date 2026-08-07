@@ -6,14 +6,16 @@ images/ 를 다시 채우고, articles/ 의 [[img:...]] 마커를 겹치지 않�
 - eDu Kart 편(홀수)에는 에듀카트 Ver.4/Ver.5 계열 사진만
 - 칼리 편(짝수)에는 칼리·뉴트로엠 계열 사진만
 - 같은 이미지를 두 번 이상 쓰지 않는다 (한 편당 2장, 20편 = 40장 전부 서로 다름)
-- 출처가 제각각인 사진을 810×608(4:3) 한 규격, 한 톤으로 맞춘다
+- 편마다 다른 스타일을 입힌다 (비율·톤·마감). 프리셋은 scripts/styles.py 참고.
+  한 편 안의 2장은 같은 스타일로 묶어 글이 따로 놀지 않게 한다.
 
-Pillow가 있으면 쓰고, 없으면 macOS 기본 도구 sips로 넘어간다. 둘 다 없으면 원본을 복사한다.
+Pillow가 있으면 쓰고, 없으면 macOS 기본 도구 sips로 넘어간다(이 경우 비율까지만).
+둘 다 없으면 원본을 복사한다.
 
 사용법:
-    python3 scripts/rebuild_images.py --dry-run   # 무엇을 쓸지 확인만
-    python3 scripts/rebuild_images.py             # 수집 + 규격·톤 통일 + 마커 재배정
-    python3 scripts/rebuild_images.py --no-style  # 규격·톤 손대지 않고 가로폭만
+    python3 scripts/rebuild_images.py --dry-run   # 무엇을 쓸지·어떤 스타일일지 확인만
+    python3 scripts/rebuild_images.py             # 수집 + 편별 스타일 + 마커 재배정
+    python3 scripts/rebuild_images.py --no-style  # 스타일 없이 가로폭만
 
 Ver.5 사진을 따로 갖고 계시면 images_src/edukart_v5/ 에 넣어두면 우선 사용된다.
 """
@@ -26,17 +28,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import styles  # noqa: E402
+
+try:  # Pillow가 없으면 convert()가 sips 폴백으로 넘어간다
+    from PIL import Image
+except ImportError:
+    Image = None
+
 ROOT = Path(__file__).resolve().parent.parent
 ARTICLES = ROOT / "articles"
 IMAGES = ROOT / "images"
 LOCAL_SRC = ROOT / "images_src"          # 사용자가 직접 넣어두는 추가 사진
-TARGET_WIDTH = 810                        # 카드 이미지와 같은 가로폭(75% 기준)
-TARGET_HEIGHT = 608                       # 4:3 — 40장을 같은 규격으로 통일
-# 톤 보정값. 출처가 제각각인 사진을 한 시리즈처럼 보이게 하는 정도만 건드린다.
-TONE = {"contrast": 1.06, "saturation": 0.94, "brightness": 1.02}
-# 4:3로 자를 때 이만큼 넘게 잘려나가면 자르지 않고 여백을 채운다
-# (카드뉴스처럼 글자가 든 세로 이미지를 보호하기 위한 기준)
-MAX_CROP_LOSS = 0.25
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
 MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]", re.I)
 
@@ -153,77 +156,112 @@ def edge_color(im):
     return tuple(sum(c[i] for c in samples) // n for i in range(3))
 
 
-def convert_pillow(src, dst, style=True):
-    """Pillow가 있으면 4:3 중앙 크롭 + 톤 통일까지 한다."""
+def fit_to(im, size):
+    """size에 맞춘다. 잘려나가는 양이 크면 자르지 않고 여백을 채운다."""
+    from PIL import Image
+
+    tw, th = size
+    want = tw / th
+    w, h = im.size
+    keep = (h * want) / w if w / h > want else (w / want) / h
+    if keep >= 1 - styles.MAX_CROP_LOSS:
+        # 손실이 작으면 중앙 크롭 (사진에 적합)
+        if w / h > want:
+            new_w = int(h * want)
+            left = (w - new_w) // 2
+            im = im.crop((left, 0, left + new_w, h))
+        else:
+            new_h = int(w / want)
+            top = (h - new_h) // 2
+            im = im.crop((0, top, w, top + new_h))
+        return im.resize((tw, th), Image.LANCZOS)
+
+    # 손실이 크면 자르지 않고 축소해 넣는다.
+    # 카드뉴스처럼 글자가 있는 세로 이미지를 잘라먹지 않기 위한 처리.
+    im = im.copy()
+    im.thumbnail((tw, th), Image.LANCZOS)
+    canvas = Image.new("RGB", (tw, th), edge_color(im))
+    canvas.paste(im, ((tw - im.width) // 2, (th - im.height) // 2))
+    return canvas
+
+
+def apply_tint(im, tint):
+    """채널별 배율로 색조를 민다. (1,1,1)이면 아무것도 하지 않는다."""
+    if tuple(tint) == (1.0, 1.0, 1.0):
+        return im
+    r, g, b = im.split()[:3]
+    lut = lambda k: [min(255, int(i * k)) for i in range(256)]
+    return Image.merge("RGB", (r.point(lut(tint[0])),
+                               g.point(lut(tint[1])),
+                               b.point(lut(tint[2]))))
+
+
+def apply_finish(im, finish):
+    """흰 여백 테두리 / 둥근 모서리 마감."""
+    from PIL import Image, ImageDraw
+
+    if finish == "border":
+        pad = styles.BORDER_PX
+        inner = im.resize((im.width - pad * 2, im.height - pad * 2), Image.LANCZOS)
+        canvas = Image.new("RGB", im.size, (255, 255, 255))
+        canvas.paste(inner, (pad, pad))
+        return canvas
+    if finish == "round":
+        radius = styles.ROUND_RADIUS
+        mask = Image.new("L", im.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, im.width - 1, im.height - 1],
+                                               radius=radius, fill=255)
+        canvas = Image.new("RGB", im.size, (255, 255, 255))
+        canvas.paste(im, (0, 0), mask)
+        return canvas
+    return im
+
+
+def convert_pillow(src, dst, style=None):
+    """프리셋대로 비율·톤·마감을 적용한다. style이 None이면 가로폭만 맞춘다."""
     from PIL import Image, ImageEnhance
 
     im = Image.open(src)
-    if im.mode not in ("RGB", "L"):
-        im = im.convert("RGB")
-    elif im.mode == "L":
+    if im.mode != "RGB":
         im = im.convert("RGB")
 
-    if style:
-        want = TARGET_WIDTH / TARGET_HEIGHT
+    if style is None:
         w, h = im.size
-        # 4:3로 맞추려면 얼마나 잘라내야 하는지 먼저 따진다.
-        keep = (h * want) / w if w / h > want else (w / want) / h
-        if keep >= 1 - MAX_CROP_LOSS:
-            # 손실이 작으면 중앙 크롭 (사진에 적합)
-            if w / h > want:
-                new_w = int(h * want)
-                left = (w - new_w) // 2
-                im = im.crop((left, 0, left + new_w, h))
-            else:
-                new_h = int(w / want)
-                top = (h - new_h) // 2
-                im = im.crop((0, top, w, top + new_h))
-            im = im.resize((TARGET_WIDTH, TARGET_HEIGHT), Image.LANCZOS)
-        else:
-            # 손실이 크면 자르지 않고 축소해 넣는다.
-            # 카드뉴스처럼 글자가 있는 세로 이미지를 잘라먹지 않기 위한 처리.
-            im.thumbnail((TARGET_WIDTH, TARGET_HEIGHT), Image.LANCZOS)
-            canvas = Image.new("RGB", (TARGET_WIDTH, TARGET_HEIGHT), edge_color(im))
-            canvas.paste(im, ((TARGET_WIDTH - im.width) // 2,
-                              (TARGET_HEIGHT - im.height) // 2))
-            im = canvas
-        im = ImageEnhance.Contrast(im).enhance(TONE["contrast"])
-        im = ImageEnhance.Color(im).enhance(TONE["saturation"])
-        im = ImageEnhance.Brightness(im).enhance(TONE["brightness"])
+        im = im.resize((styles.BASE_WIDTH, max(1, round(h * styles.BASE_WIDTH / w))),
+                       Image.LANCZOS)
     else:
-        w, h = im.size
-        im = im.resize((TARGET_WIDTH, max(1, round(h * TARGET_WIDTH / w))), Image.LANCZOS)
+        im = fit_to(im, styles.size_for(style))
+        im = ImageEnhance.Contrast(im).enhance(style["contrast"])
+        im = ImageEnhance.Color(im).enhance(style["color"])
+        im = ImageEnhance.Brightness(im).enhance(style["brightness"])
+        im = apply_tint(im, style["tint"])
+        im = apply_finish(im, style["finish"])
 
     im.save(dst, "PNG")
     return True
 
 
-def convert_sips(src, dst, style=True):
-    """Pillow가 없을 때 macOS 기본 도구로 처리한다. 톤 보정은 생략된다."""
+def convert_sips(src, dst, style=None):
+    """Pillow가 없을 때의 폴백. 비율까지만 맞추고 톤·마감은 생략된다."""
     subprocess.run(
         ["sips", "-s", "format", "png", str(src), "--out", str(dst)],
         check=True, capture_output=True,
     )
-    if style:
-        # -c 는 중앙 기준 크롭(높이 너비 순)
-        subprocess.run(
-            ["sips", "--resampleHeightWidthMax", str(max(TARGET_WIDTH, TARGET_HEIGHT) * 2), str(dst)],
-            check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["sips", "-c", str(TARGET_HEIGHT), str(TARGET_WIDTH), str(dst)],
-            check=True, capture_output=True,
-        )
-    else:
-        subprocess.run(
-            ["sips", "--resampleWidth", str(TARGET_WIDTH), str(dst)],
-            check=True, capture_output=True,
-        )
+    if style is None:
+        subprocess.run(["sips", "--resampleWidth", str(styles.BASE_WIDTH), str(dst)],
+                       check=True, capture_output=True)
+        return True
+    tw, th = styles.size_for(style)
+    subprocess.run(["sips", "--resampleHeightWidthMax", str(max(tw, th) * 2), str(dst)],
+                   check=True, capture_output=True)
+    # -c 는 중앙 기준 크롭(높이 너비 순)
+    subprocess.run(["sips", "-c", str(th), str(tw), str(dst)],
+                   check=True, capture_output=True)
     return True
 
 
-def convert(src, dst, style=True):
-    """규격·톤을 맞춰 dst(png)로 만든다. 단계적으로 폴백한다."""
+def convert(src, dst, style=None):
+    """규격·톤·마감을 적용해 dst(png)로 만든다. 단계적으로 폴백한다."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     for fn in (convert_pillow, convert_sips):
         try:
@@ -248,7 +286,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="수집·재배정 계획만 출력")
     ap.add_argument("--no-style", action="store_true",
-                    help="4:3 통일·톤 보정 없이 가로폭만 맞춘다")
+                    help="스타일 적용 없이 가로폭만 맞춘다")
     args = ap.parse_args()
 
     arts = article_files()
@@ -319,9 +357,10 @@ def main():
         plan.append((path, picks))
 
     print()
-    for path, picks in plan:
+    for i, (path, picks) in enumerate(plan):
         names = ", ".join(d or "(없음)" for _, d in picks)
-        print(f"  {path.name} → {names}")
+        st = "스타일 없음" if args.no_style else styles.style_for(i)["name"]
+        print(f"  {path.name} [{st}] → {names}")
         for s, d in picks:
             if s:
                 print(f"        {d}  ←  {s}")
@@ -340,11 +379,12 @@ def main():
     IMAGES.mkdir(parents=True, exist_ok=True)
 
     made = 0
-    for _, picks in plan:
+    for i, (path, picks) in enumerate(plan):
+        st = None if args.no_style else styles.style_for(i)
         for src, dst_name in picks:
-            if src and convert(src, IMAGES / dst_name, style=not args.no_style):
+            if src and convert(src, IMAGES / dst_name, style=st):
                 made += 1
-    spec = "가로 810px" if args.no_style else f"{TARGET_WIDTH}×{TARGET_HEIGHT} (4:3) + 톤 통일"
+    spec = "가로 810px, 스타일 없음" if args.no_style else "편마다 다른 스타일"
     print(f"이미지 {made}장 생성 완료 [{spec}] → {IMAGES}")
 
     # 원고 마커 재작성
