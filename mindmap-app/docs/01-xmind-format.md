@@ -2,7 +2,11 @@
 
 > **신뢰도 표기**
 > `[확인]` = 공개 소스코드/문서로 교차 확인됨
-> `[추정]` = 다수 구현체에서 관찰되나 1차 출처 미확인 — **Phase 0에서 실측 검증 필요**
+> `[실측]` = **실제 `.xmind` 파일 코퍼스에서 직접 관찰됨** — 가장 높은 신뢰도
+> `[추정]` = 다수 구현체에서 관찰되나 1차 출처 미확인 — 실측 검증 필요
+>
+> 📊 **실측 코퍼스 5개 파일 / 252 토픽 분석 완료.** 상세 결과는 [07번 문서](07-corpus-measurement.md).
+> 아래 본문은 그 결과를 반영해 갱신되었다.
 
 ---
 
@@ -34,6 +38,24 @@ else → 지원하지 않는 파일
 
 이 방식은 `simple-mind-map`, `xmindparser` 등 실제 구현체가 공통으로 쓴다. `[확인]`
 
+### 🚨 이 순서는 선택이 아니라 필수다 `[실측]`
+
+**modern 파일에도 `content.xml`이 함께 들어 있다.** 그런데 그 내용은 마인드맵이 아니라
+구버전 XMind용 **경고 스텁**이다. 코퍼스 5개 파일의 `content.xml`이 MD5까지 동일하며
+(4309 bytes), 타임스탬프가 2017년으로 고정된 상수다:
+
+```xml
+<topic structure-class="org.xmind.ui.logic.right" timestamp="1503058545540">
+  <title>Warning
+警告
+Attention
+Warnung
+경고</title>
+```
+
+→ **`content.xml`을 먼저 검사하면 사용자의 맵 대신 "경고"라는 맵을 조용히 연다.**
+   `content.json` 우선 검사를 **불변 규칙**으로 못박고 테스트로 강제한다.
+
 ---
 
 ## 2. Modern 포맷 (`content.json` 세대)
@@ -52,39 +74,38 @@ myfile.xmind
 └── content.xml               # (선택) 구버전 호환용 XML 스켈레톤
 ```
 
-`[확인]` — `simple-mind-map`의 export 구현이 정확히 이 엔트리들을 쓴다.
-`revisions/` 디렉터리도 관찰되나 편집기 동작에는 불필요. `[추정]`
+`[실측]` — 코퍼스 5개 파일이 정확히 이 구성이다. `Thumbnails/`는 길이 0의
+**디렉터리 엔트리로도 별도 존재**하므로 ZIP 재작성 시 빠뜨리지 않도록 주의한다.
 
-### 2.2 `metadata.json` 실제 형태 `[확인]`
-
-```json
-{
-  "modifier": "",
-  "dataStructureVersion": "2",
-  "creator": { "name": "mind-map" },
-  "layoutEngineVersion": "3",
-  "activeSheetId": "<sheet id>"
-}
-```
-
-`creator.name`에는 생성 앱 이름이 들어간다. 우리 앱 이름을 넣되,
-**원본을 편집한 경우 `creator`를 함부로 덮어쓰지 않는 것**을 권장한다(§5 참조).
-
-### 2.3 `manifest.json` 실제 형태 `[확인]`
+### 2.2 `metadata.json` 실제 형태 `[실측]`
 
 ```json
-{
-  "file-entries": {
-    "content.json": {},
-    "metadata.json": {},
-    "Thumbnails/thumbnail.png": {},
-    "resources/abc123.png": {}
-  }
-}
+{"dataStructureVersion":"2","modifier":"Vana 22.11.3656.202301092354",
+ "layoutEngineVersion":"3","activeSheetId":"bcaa8a711fc9de683e504a29f4",
+ "creator":{"name":"Vana","version":"25.01.01061"}}
 ```
 
-리소스를 추가/삭제할 때 **manifest도 반드시 동기화**해야 한다.
-manifest에 없는 `resources/` 파일은 XMind 본체가 무시하거나 파일을 손상으로 판정할 수 있다. `[추정]`
+- `creator.name`은 **`"Vana"`** — XMind의 내부 코드네임이다. `"Xmind"`가 아니다.
+- `layoutEngineVersion`은 `"3"`(2025년 파일) → `"4"`(2026년 파일)로 **올라가고 있다.**
+- **파일마다 키 집합이 다르다.** 일부에만 `familyId`, `Author`, `Create.Time`,
+  `Share.LanguageChannel`이 존재한다.
+
+→ **고정 스키마로 재생성하면 안 된다.** 원본 객체를 유지하고 `activeSheetId` 등
+   꼭 필요한 키만 패치한다. `creator`도 원본을 덮어쓰지 않는 것을 권장한다(§5).
+
+### 2.3 `manifest.json` 실제 형태 `[실측]`
+
+```json
+{"file-entries":{"content.json":{},"metadata.json":{},"Thumbnails/thumbnail.png":{}}}
+```
+
+이미지가 있는 파일만 `"resources/<sha256>.svg":{}`가 추가된다.
+
+**🚨 manifest는 완전한 등록부가 아니다.** `content.xml`이 아카이브에 실재하는데
+manifest에는 **없다**(5개 파일 전부). 즉 manifest ≠ ZIP 엔트리 목록이다.
+
+→ ZIP 엔트리 목록을 진실로 삼고, manifest는 **리소스 항목만 증분 동기화**한다.
+   manifest를 통째로 재생성하면 XMind가 기대하는 상태에서 벗어난다.
 
 ### 2.4 `content.json` 스키마
 
@@ -127,19 +148,39 @@ manifest에 없는 `resources/` 파일은 XMind 본체가 무시하거나 파일
 | `branch` | `"folded"` | 접힘 상태 |
 | `style` | `{id, type:"topic", properties:{...}}` | 개별 노드 스타일 |
 
-#### Topic 객체 — 관찰되나 검증 필요한 필드 `[추정]`
+#### Topic 객체 — 실측으로 확정된 필드 `[실측]`
 
-| 필드 | 의미 | 왜 중요한가 |
+| 필드 | 형태 | 관찰 |
 |---|---|---|
-| `children.detached[]` | **플로팅 토픽** (트리에 붙지 않은 자유 노드) | 유실 시 사용자 데이터가 사라진다 |
-| `children.summary[]` | 요약 노드의 실체 토픽 | `summaries[]`는 참조, 실체는 여기 |
-| `children.callout[]` | 말풍선 주석 | |
-| `markers[]` | `{markerId: "priority-1"}` 형태의 아이콘 | Xmind 사용자의 핵심 습관 |
-| `image` | `{src:"xap:resources/x.png", width, height, align}` | `xap:` 스킴이 ZIP 내부 참조 |
-| `boundaries[]` | `{id, range, title, style}` 경계선 | 시각적 그룹핑 |
-| `numberFormat` / `numberSeparator` | 자동 넘버링 | |
-| `customWidth`, `customPosition` | 수동 배치 | |
-| `attributedTitle` | 리치텍스트 제목 (부분 서식) | 평문 `title`과 이중 저장 가능성 |
+| `children.detached[]` | Topic[] + `position` | **플로팅 토픽.** 3개 관찰 |
+| `image` | `{src:"xap:resources/<sha256>.svg", width, height, align}` | `xap:` = ZIP 내부 참조 |
+| `position` | `{x: float, y: float}` | 36회 |
+| `customWidth` | int | 31회 |
+| `attributedTitle` | `[{text: "..."}, …]` | 9회. **§2.6에서 별도 경고** |
+| `class` | `"topic"` \| **`"importantTopic"`** | 토픽 역할 구분 |
+| `extensions[]` | `{provider, content}` | 루트에서 좌우 분배(`right-number`) 지정 |
+
+#### Topic 객체 — 아직 미검증 `[추정]`
+
+| 필드 | 의미 | 상태 |
+|---|---|---|
+| `markers[]` | `{markerId: "priority-1"}` 아이콘 | 코퍼스에 사용 사례 없음. **단 `theme.*` 에 대응 스타일 존재** |
+| `boundaries[]` | `{id, range, title, style}` 경계선 | 〃 (`theme.boundary` 존재) |
+| `summaries[]` / `children.summary[]` | 요약 노드 | 〃 (`theme.summary`, `theme.summaryTopic` 존재) |
+| `children.callout[]` | 말풍선 주석 | 〃 (`theme.calloutTopic` 존재) |
+| `numberFormat` / `numberSeparator` | 자동 넘버링 | 사용 사례 없음 |
+
+> 테마에 대응 스타일이 존재하므로 **필드 자체는 확실하다.** 정확한 형태만 미확정이다.
+> [07번 문서 §8](07-corpus-measurement.md)에 추가 샘플 요청 목록이 있다.
+
+#### Sheet 레벨 — 실측 추가 발견 `[실측]`
+
+| 필드 | 값 | 의미 |
+|---|---|---|
+| `revisionId` | UUID | 5개 전부 존재. 버전 추적 |
+| `topicPositioning` | `"fixed"` | 자유 배치 모드 |
+| `topicOverlapping` | `"overlap"` | 겹침 허용 |
+| `theme` | 15개 하위 키 | `map, centralTopic, mainTopic, subTopic, minorTopic, importantTopic, expiredTopic, floatingTopic, calloutTopic, summaryTopic, summary, boundary, relationship, colorThemeId, skeletonThemeId` |
 
 > **주의**: `xmindparser`(MIT)는 자체 문서에서 **플로팅 토픽, 링크된 토픽, 요약, 경계선,
 > Pro 기능(task info)을 지원하지 않는다**고 명시한다. `[확인]`
@@ -163,17 +204,60 @@ org.xmind.ui.fishbone.rightHeaded / .leftHeaded 피시본
 org.xmind.ui.spreadsheet           매트릭스
 ```
 
+실측으로 `org.xmind.ui.logic.right`, `org.xmind.ui.fishbone.leftHeaded`,
+`org.xmind.ui.tree.right`, `org.xmind.ui.map.unbalanced` 확인 — **위 문자열 형태가 정확히 일치**한다. `[실측]`
+
 `simple-mind-map`은 export 시 무조건 `org.xmind.ui.logic.right`로 고정한다. `[확인]`
 → **구조 정보가 왕복에서 손실된다**는 뜻. 우리가 반드시 고쳐야 할 지점.
 
-### 2.5 관계선(Relationship) `[추정]`
+#### 🚨 구조 정보는 세 곳에 분산 저장된다 `[실측]`
 
-시트 레벨의 `relationships[]`에 저장된다:
+피시본 파일에서 관찰:
 
 ```jsonc
-{ "id": "...", "end1Id": "topicA", "end2Id": "topicB",
-  "title": "라벨", "style": {...}, "controlPoints": {...} }
+// 1) 시트 확장 — 레벨별 구조 지정
+"extensions": [{
+  "provider": "org.xmind.ui.skeleton.structure.style",
+  "content": { "centralTopic": "org.xmind.ui.fishbone.leftHeaded",
+               "mainTopic":    "org.xmind.ui.tree.right" }   // 1레벨 자식이 쓸 구조
+}]
+// 2) rootTopic.structureClass
+// 3) 개별 topic.structureClass
 ```
+
+**구조 전환 Command는 이 세 지점을 일관되게 갱신해야 한다.** 하나만 고치면 XMind에서 레이아웃이 깨진다.
+`simple-mind-map`이 구조를 고정해버리는 것도 이 복잡성 때문으로 보인다.
+
+### 2.5 관계선(Relationship) `[실측]`
+
+시트 레벨의 `relationships[]`에 저장된다. 코퍼스에서 18개 관찰:
+
+```jsonc
+{ "id": "182aa7e6-…", "end1Id": "topicA", "end2Id": "topicB",
+  "title": "연계 창업",
+  "controlPoints": { "0": {"x": 734.83, "y": -3.12}, "1": {"x": 691.83, "y": 3.04} },
+  "lineEndPoints": { "0": {"x": 127.5, "y": -3.12}, "1": {"x": 83.5, "y": 3.04} } }
+```
+
+`controlPoints` / `lineEndPoints`는 **배열이 아니라 `"0"`, `"1"` 문자열 키를 갖는 객체**다.
+JSON 파싱 후 배열로 정규화하면 재직렬화 시 형태가 바뀌므로 그대로 둔다.
+
+### 2.6 🚨 `attributedTitle` — 텍스트 이중 저장 `[실측]`
+
+```json
+{ "title": "일정 :  2025-04-03 ~ 2025-04-13",
+  "attributedTitle": [ {"text": "일정 :  "}, {"text": "2025-04-03 ~ 2025-04-13"} ] }
+```
+
+같은 문자열이 두 곳에 있다. `attributedTitle`은 구간별 서식용 리치텍스트,
+`title`은 그 평문 버전이다.
+
+**편집기에 미치는 영향**: 텍스트 편집 시 `title`만 갱신하면 우리 앱에는 새 글자가 보이지만
+**XMind에서 열면 `attributedTitle`이 우선되어 옛 글자가 보일 수 있다.**
+
+→ v1 규칙: **텍스트가 바뀌면 `attributedTitle`을 삭제한다.**
+   (서식은 잃되 데이터 불일치는 없다. 서식 보존은 리치텍스트 편집기를 붙이는 Phase 3에서.)
+   이 규칙은 주석이 아니라 **테스트로 강제**한다.
 
 ---
 
@@ -202,7 +286,14 @@ XMind 8 이하 사용자는 이미 소수이며, 양방향 지원은 비용 대�
 
 ---
 
-## 4. 기존 OSS 구현의 손실 지점 (실측 요약)
+## 4. 기존 OSS 구현의 손실 지점
+
+> 📊 아래 표는 코퍼스 실측으로 검증됐다. naive 파서 방식을 5개 파일에 돌린 결과
+> **131개 데이터 포인트가 유실**됐다 — 플로팅 토픽 3, 관계선 18, style 33,
+> position 36, customWidth 31, attributedTitle 9, 이미지 1.
+> 이미지 1개는 코퍼스의 유일한 리소스다. 즉 **왕복 한 번에 그림이 사라진다.**
+> 상세는 [07번 문서 §6](07-corpus-measurement.md).
+
 
 | 요소 | `simple-mind-map` | `xmindparser` | 우리 목표 |
 |---|---|---|---|
@@ -254,7 +345,7 @@ XMind 8 이하 사용자는 이미 소수이며, 양방향 지원은 비용 대�
 **비용**: 내부 모델이 두 겹이 되어 구현 복잡도가 올라간다.
 → 그러나 이것이 "기존 파일을 편집하고 싶다"는 요구사항의 유일한 정답이다.
 
-### 검증 방법 (Phase 0 필수 산출물)
+### 검증 방법 (Phase 0 필수 산출물) — ✅ 달성
 
 ```
 원본.xmind → [우리 앱: 열기 → 아무것도 안 함 → 저장] → 결과.xmind
@@ -262,20 +353,43 @@ assert  normalizeJSON(원본.content.json) == normalizeJSON(결과.content.json)
 assert  원본 ZIP 엔트리 집합 == 결과 ZIP 엔트리 집합
 ```
 
-**무편집 왕복이 바이트 동등에 가깝지 않으면 그 다음 단계로 가지 않는다.**
-이 게이트를 통과한 뒤에야 편집 기능을 얹는다.
+**결과: 코퍼스 5/5 통과.** 구현은 `tools/roundtrip.py`.
+
+### 🎯 목표를 "바이트 동등"으로 상향할 수 있다 `[실측]`
+
+기대 이상의 결과가 나왔다. XMind의 직렬화 방식을 정확히 재현하면
+`content.json`이 **바이트 단위로 동일**해진다 (5/5, 14449 → 14449 bytes 등):
+
+```python
+json.dumps(ast, ensure_ascii=False, separators=(",", ":"))   # Python
+JSON.stringify(ast)                                          # JS (기본 동작이 동일)
+```
+
+조건 세 가지:
+1. **공백 없는 compact JSON** — `,` `:` 뒤 공백 없음
+2. **비ASCII 이스케이프 금지** — 한글이 `\uXXXX`가 아니라 UTF-8 원문
+3. **키 순서 보존** — 재정렬 금지
+
+→ 무편집 저장 시 **파일 해시가 그대로 유지**된다.
+   이는 **`.xmind`를 Git으로 버전 관리해도 노이즈 diff가 생기지 않는다**는 뜻이고,
+   그 자체로 제품 기능이 된다 ([05번 로드맵](05-roadmap.md) Phase 5 "Git 친화" 항목).
 
 ---
 
 ## 6. Phase 0 검증 체크리스트
 
-- [ ] 실제 XMind 앱(최신 버전)으로 모든 기능을 1회씩 사용한 샘플 파일 제작
-- [ ] `content.json` 전체 키를 재귀 수집해 **실측 스키마** 산출
-- [ ] `[추정]` 표기된 필드 전부를 `[확인]`으로 승격 또는 폐기
-- [ ] 마커 ID 전체 목록 추출 (priority-*, task-*, flag-*, star-*, people-*, symbol-*, month-*, week-* 등)
-- [ ] 테마 객체 구조 파악 (전체 보존만 하고 편집은 후순위로 둘지 결정)
-- [ ] 무편집 왕복 diff = 0 달성
+- [x] 실제 XMind 앱으로 만든 샘플 파일 확보 (5개 / 252 토픽)
+- [x] `content.json` 전체 키를 재귀 수집해 **실측 스키마** 산출 → `tools/schema_extract.py`
+- [x] `[추정]` 필드 승격 — detached, image, position, customWidth, attributedTitle, relationships 확정
+- [x] 무편집 왕복 diff = 0 달성 (**바이트 동등까지 달성**)
+- [x] 테마 객체 최상위 구조 파악 (15개 키. 보존만 하고 편집은 Phase 3)
+- [ ] 마커 ID 목록 추출 — **샘플 부족.** 마커 사용 파일 필요
+- [ ] 경계선 · 요약 · 말풍선 형태 확정 — **샘플 부족**
+- [ ] 다중 시트 파일 검증 — 현재 코퍼스는 전부 단일 시트
+- [ ] legacy(XMind 8) 파일로 읽기 경로 검증
 - [ ] 우리가 저장한 파일을 **실제 XMind 앱에서 열어 정상 렌더링되는지** 육안 확인
+
+> 남은 항목은 전부 **샘플 부족**이 원인이다. 필요한 파일 목록은 [07번 문서 §8](07-corpus-measurement.md).
 
 ---
 
