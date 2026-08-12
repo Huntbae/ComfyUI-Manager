@@ -16,9 +16,17 @@ function arg(name) {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 const flag = (name) => process.argv.includes(`--${name}`);
+// 녹화는 기본 켜짐. --no-record 로만 끈다. (요구사항: 전 과정 녹화)
+const recordOn = () => !flag('no-record');
 
 (async () => {
   const cmd = process.argv[2];
+
+  // 글감 자동 선정: 이번 주 유튜브에서 주제 영상을 모아 점수로 1등을 뽑는다.
+  if (cmd === 'topic') {
+    require('./scripts/pick-topic.js');
+    return;
+  }
 
   if (cmd === 'cookies') {
     // 값은 화면에 표시되지 않게 입력받는다. (환경변수로 줘도 되지만 비권장 — 노출 위험)
@@ -72,7 +80,7 @@ const flag = (name) => process.argv.includes(`--${name}`);
       images,
       imagedir,
       headful: flag('headful'),
-      record: flag('record'),
+      record: recordOn(),
     });
     console.log(JSON.stringify(r, null, 2));
     process.exit(r.ok ? 0 : 1);
@@ -115,13 +123,17 @@ const flag = (name) => process.argv.includes(`--${name}`);
       content: nx.body,
       imagedir: nx.config.imagedir || '',
       headful: flag('headful'),
-      record: flag('record'),
+      record: recordOn(),
     });
     if (r.ok) {
       const count = queue.markDone(nx.file);
       console.log(`✅ 임시저장 완료 — 「${nx.title}」`);
       console.log(`   누적 ${count}편 / 남은 ${nx.remaining - 1}편`);
       console.log(`   네이버에서 확인: https://blog.naver.com/${nx.config.blogId} → 글쓰기 → 저장된 글`);
+      if (r.video) {
+        console.log(`   녹화: ${r.video}`);
+        console.log('   프레임으로 확인: npm run frames');
+      }
       process.exit(0);
     }
     console.error(`❌ 게시 실패: ${r.reason || ''} ${r.hint || ''}`);
@@ -129,6 +141,6 @@ const flag = (name) => process.argv.includes(`--${name}`);
     process.exit(1);
   }
 
-  console.error('알 수 없는 명령입니다. login / next(다음) / cookies / post 중 하나를 사용하세요.');
+  console.error('알 수 없는 명령입니다. topic / login / next(다음) / cookies / post 중 하나를 사용하세요.');
   process.exit(1);
 })();

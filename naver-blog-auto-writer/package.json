@@ -3,9 +3,14 @@
   "version": "0.2.0",
   "description": "네이버 블로그 자동 글쓰기 — 스마트에디터 자동 타이핑 + 이미지 삽입 + 임시저장 (playwright-core + 시스템 크로미움)",
   "main": "index.js",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "check": "node scripts/check-env.js"
+    "check": "node scripts/check-env.js",
+    "link-ffmpeg": "node scripts/link-ffmpeg.js",
+    "frames": "node scripts/inspect-video.js",
+    "topic": "node scripts/pick-topic.js"
   },
   "license": "ISC",
   "dependencies": {

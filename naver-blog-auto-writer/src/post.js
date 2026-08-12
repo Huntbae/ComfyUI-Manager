@@ -165,7 +165,7 @@ async function writePost({
 // 방식 B(권장): 로그인된 전용 크롬 프로필 재사용 — 쿠키 추출 불필요.
 // 프로필에 네이버 로그인이 안 돼 있으면, headful일 때 사람이 로그인할 때까지 대기.
 async function writePostProfile({
-  blogId, title, content, images = [], imagedir = '', headful = false, record = false,
+  blogId, title, content, images = [], imagedir = '', headful = false, record = true,
 }) {
   const { launchPersistent } = require('./browser');
   const { context } = await launchPersistent({ headful, record });
@@ -181,7 +181,12 @@ async function writePostProfile({
       await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
     }
     await fillEditor(page, { title, content, images, imagedir });
-    return { ok: true, saved: true, published: false };
+    // 녹화 파일 경로는 context.close() 뒤에 실제로 기록된다. 경로는 미리 받아둔다.
+    let video = null;
+    if (record) {
+      try { video = (await page.video()?.path()) || null; } catch { video = null; }
+    }
+    return { ok: true, saved: true, published: false, video };
   } catch (e) {
     return { ok: false, reason: 'error', hint: e.message.split('\n')[0] };
   } finally {
