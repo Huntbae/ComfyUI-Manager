@@ -18,13 +18,18 @@ const { chromium } = require('playwright-core');
   console.log(`Chromium OK: ${browser.version()} (${chromePath})`);
   await browser.close();
 
-  // 녹화는 playwright 번들 ffmpeg 필요 (없어도 글쓰기는 동작, 녹화만 꺼짐)
-  const pwDir = process.env.PLAYWRIGHT_BROWSERS_PATH || '';
-  const hasFfmpeg =
-    (pwDir && fs.existsSync(pwDir) && fs.readdirSync(pwDir).some((d) => d.startsWith('ffmpeg'))) || false;
-  console.log(hasFfmpeg
-    ? 'ffmpeg OK: 녹화 가능'
-    : 'ffmpeg 미확인: 녹화가 안 되면 --no-record 옵션으로 실행하세요');
+  // 녹화는 Playwright가 기대하는 자리의 ffmpeg만 쓴다.
+  // PLAYWRIGHT_BROWSERS_PATH가 없으면 OS 기본 캐시 경로를 봐야 한다 (예전엔 이걸 놓쳐 오탐이 났다).
+  const ff = require('../src/ffmpeg-path');
+  if (ff.isLinked()) {
+    console.log(`ffmpeg OK: 녹화 가능 (${ff.expectedPath()})`);
+  } else {
+    const sys = ff.findSystemFfmpeg();
+    console.log('ffmpeg 없음: 녹화가 꺼진 채로 실행됩니다');
+    console.log(sys
+      ? `  → npm run link-ffmpeg 로 시스템 ffmpeg(${sys})를 연결하세요`
+      : '  → brew install ffmpeg 후 npm run link-ffmpeg 를 실행하세요');
+  }
 })().catch((e) => {
   console.error('점검 실패:', e.message);
   process.exit(1);

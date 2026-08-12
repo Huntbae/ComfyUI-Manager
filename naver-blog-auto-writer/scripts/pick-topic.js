@@ -186,11 +186,32 @@ function rationale(ranked, cfg, days, publishedAfter) {
 }
 
 async function main() {
-  const key = process.env.YOUTUBE_API_KEY;
+  const key = (process.env.YOUTUBE_API_KEY || '').trim();
   if (!key) {
     console.error('❌ YOUTUBE_API_KEY 환경변수가 없습니다.');
-    console.error('   export YOUTUBE_API_KEY="발급받은키"   ← 명령줄 인자로 넘기지 마세요');
+    console.error('   export YOUTUBE_API_KEY=<여기에 실제 키를 붙여넣기>   ← 명령줄 인자로 넘기지 마세요');
     console.error('   키 발급: console.cloud.google.com → YouTube Data API v3 사용 설정 → 사용자 인증 정보');
+    process.exit(1);
+  }
+  // 안내문의 자리표시자를 그대로 붙여넣는 실수가 잦다. API에 보내기 전에 걸러낸다.
+  // 구글 API 키는 "AIza"로 시작하는 39자 영숫자다.
+  const looksReal = /^AIza[0-9A-Za-z_-]{35}$/.test(key);
+  if (!looksReal) {
+    const why = /[가-힣]/.test(key) ? '한글이 들어 있습니다'
+      : key.length !== 39 ? `길이가 ${key.length}자입니다 (실제 키는 39자)`
+      : '형식이 다릅니다';
+    console.error(`❌ YOUTUBE_API_KEY가 실제 키로 보이지 않습니다 — ${why}.`);
+    console.error('   안내문의 자리표시자를 그대로 붙여넣지 않았는지 확인하세요.');
+    console.error('   실제 키는 AIza 로 시작하는 39자입니다.');
+    console.error('');
+    console.error('   발급 절차');
+    console.error('     1. console.cloud.google.com 접속 (구글 계정 로그인)');
+    console.error('     2. 상단에서 프로젝트 만들기 (이름 아무거나)');
+    console.error('     3. 검색창에 "YouTube Data API v3" → 사용 설정');
+    console.error('     4. API 및 서비스 → 사용자 인증 정보 → 사용자 인증 정보 만들기 → API 키');
+    console.error('     5. 만들어진 키를 복사해서 아래처럼 실행');
+    console.error('        export YOUTUBE_API_KEY=AIza...복사한키...');
+    console.error('        node index.js topic');
     process.exit(1);
   }
 
