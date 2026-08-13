@@ -117,6 +117,21 @@ const recordOn = () => !flag('no-record');
       process.exit(0);
     }
     console.log(`오늘의 글: 「${nx.title}」 (남은 ${nx.remaining}편)`);
+
+    // 이미지가 없으면 post.js가 조용히 건너뛰어 글만 올라간다. 미리 막는다.
+    {
+      const pathMod = require('path');
+      const dir = nx.config.imagedir || '';
+      const want = [...nx.body.matchAll(/\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]/gi)].map((m) => m[1]);
+      const missing = want.filter((n) => !fs.existsSync(dir ? pathMod.resolve(dir, n) : n));
+      if (missing.length) {
+        console.error(`❌ 이미지 ${missing.length}장이 없습니다: ${missing.join(', ')}`);
+        console.error('   그대로 올리면 사진 없이 글만 올라갑니다. 먼저 이미지를 만드세요:');
+        console.error('     python3 scripts/rebuild_images.py              # 구글 드라이브에서 수집');
+        console.error('     python3 scripts/rebuild_images.py --from-existing   # 드라이브 없이 기존 사진으로');
+        process.exit(1);
+      }
+    }
     const r = await writePostProfile({
       blogId: nx.config.blogId,
       title: nx.title,

@@ -287,6 +287,9 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="수집·재배정 계획만 출력")
     ap.add_argument("--no-style", action="store_true",
                     help="스타일 적용 없이 가로폭만 맞춘다")
+    ap.add_argument("--from-existing", action="store_true",
+                    help="구글 드라이브 대신 현재 images/ 사진을 돌려써서 채운다 "
+                         "(같은 사진이 다른 스타일로 여러 번 쓰임 — 임시 방편)")
     args = ap.parse_args()
 
     arts = article_files()
@@ -303,6 +306,27 @@ def main():
 
     need_edu = sum(n for _, p, n in needs if p == "edukart")
     need_kal = sum(n for _, p, n in needs if p == "kalli")
+
+    if args.from_existing:
+        # 드라이브를 쓸 수 없을 때의 임시 방편.
+        # 원본 사진 수가 모자라므로 같은 사진이 편마다 다른 스타일로 반복된다.
+        pool_e = sorted(IMAGES.glob("edukart*.png")) or sorted(IMAGES.glob("*.png"))
+        pool_k = sorted(IMAGES.glob("kalli*.png")) or sorted(IMAGES.glob("*.png"))
+        if not pool_e or not pool_k:
+            sys.exit(f"images/ 에 재활용할 사진이 없습니다: {IMAGES}")
+        # finish()가 images/ 를 images_prev/ 로 옮기므로, 원본을 먼저 임시 폴더로 빼둔다.
+        stage = ROOT / ".img_stage"
+        shutil.rmtree(stage, ignore_errors=True)
+        stage.mkdir(parents=True)
+        pool_e = [shutil.copy2(p, stage / f"e_{i}{p.suffix}") for i, p in enumerate(pool_e)]
+        pool_k = [shutil.copy2(p, stage / f"k_{i}{p.suffix}") for i, p in enumerate(pool_k)]
+        pool_e = [Path(p) for p in pool_e]
+        pool_k = [Path(p) for p in pool_k]
+        edu = [pool_e[i % len(pool_e)] for i in range(need_edu)]
+        kal = [pool_k[i % len(pool_k)] for i in range(need_kal)]
+        print(f"⚠️  --from-existing: 원본 {len(pool_e)}+{len(pool_k)}장으로 "
+              f"{need_edu}+{need_kal}장을 만듭니다. 같은 사진이 반복됩니다.")
+        return finish(needs, edu, kal, args)
 
     drive_root = find_drive_root()
     if drive_root is None:
@@ -332,6 +356,10 @@ def main():
 
     edu = spread(edu, need_edu)
     kal = spread(kal, need_kal)
+    return finish(needs, edu, kal, args)
+
+
+def finish(needs, edu, kal, args):
 
     # 배정: 원고 순서대로 앞에서부터 하나씩 꺼내 쓴다 (재사용 없음)
     plan, used = [], set()
@@ -413,6 +441,7 @@ def main():
                 print(f"❌ 중복 사용: {name} ({seen[name]}, {path.name})")
                 bad = True
             seen[name] = path.name
+    shutil.rmtree(ROOT / ".img_stage", ignore_errors=True)
     print("✅ 검증 통과: 모든 이미지가 존재하고 중복 사용이 없습니다." if not bad
           else "⚠️ 위 문제를 확인하세요.")
 
