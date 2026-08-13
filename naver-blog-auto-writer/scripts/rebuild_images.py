@@ -45,7 +45,8 @@ ARTICLES = ROOT / "articles"
 IMAGES = ROOT / "images"
 LOCAL_SRC = ROOT / "images_src"          # 사용자가 직접 넣어두는 추가 사진
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
-MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]", re.I)
+# [[img:파일명]] 또는 [[img:파일명|사진 설명]]
+MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]", re.I)
 
 # 사진을 찾는 방식은 3단계다. 앞 단계에서 필요한 만큼 못 채우면 다음 단계로 넓힌다.
 #   1단계 정밀 — 파일명/폴더명이 제품과 직접 맞는 것
@@ -57,8 +58,8 @@ MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]", re.I)
 EDUKART_HINTS = [
     "에듀카트 v4", "에듀카트 V4", "에듀카트 Ver 4", "에듀카트 Ver.4", "에듀카트 Ver 5",
     "에듀카트 Ver.5", "에듀카트 v5", "에듀카트 V5",
-    "카드뉴스-카트레이싱", "에듀카트 보드 설계도", "전장 구성도",
-    "에듀카트 레이싱", "edu-kart", "eduKart", "edukart",
+    "에듀카트 보드 설계도", "전장 구성도",
+    "edu-kart", "eduKart", "edukart",
 ]
 KALLI_DIR_HINTS = [
     "개발 차량 이미지", "CYCLEKART_IMAGE", "Kalli", "Kalli-RC",
@@ -84,6 +85,8 @@ JUNK = [
     "사업자", "등기", "면허", "보험", "약관", "규정", "회의록", "출장",
     # 판촉물·화면
     "QR", "큐알", "현수막", "배너", "x배너", "포스터", "명함", "리플렛", "팜플렛",
+    # 카드뉴스·상세페이지는 글자가 얹힌 디자인물이라 본문 사진으로 쓰면 어색하다
+    "카드뉴스", "cardnews", "상세페이지", "썸네일", "표지", "cover", "시안",
     "스크린샷", "screenshot", "캡처", "화면", "페이지", "썸네일",
     "로고", "logo", "icon", "아이콘", "엠블럼", "폰트",
     # 개인정보 — 절대 블로그에 올라가면 안 되는 것
@@ -261,15 +264,20 @@ def edge_color(im):
     return tuple(sum(c[i] for c in samples) // n for i in range(3))
 
 
-def fit_to(im, size):
-    """size에 맞춘다. 잘려나가는 양이 크면 자르지 않고 여백을 채운다."""
+def fit_to(im, size, allow_crop=None):
+    """size에 맞춘다. 잘려나가는 양이 크면 자르지 않고 여백을 채운다.
+
+    allow_crop 을 주면 그만큼까지는 잘라낸다 (카드에서 꺼낸 사진처럼
+    이미 피사체에 딱 맞는 경우엔 여백보다 크롭이 자연스럽다).
+    """
     from PIL import Image
 
+    max_loss = styles.MAX_CROP_LOSS if allow_crop is None else allow_crop
     tw, th = size
     want = tw / th
     w, h = im.size
     keep = (h * want) / w if w / h > want else (w / want) / h
-    if keep >= 1 - styles.MAX_CROP_LOSS:
+    if keep >= 1 - max_loss:
         # 손실이 작으면 중앙 크롭 (사진에 적합)
         if w / h > want:
             new_w = int(h * want)
@@ -322,6 +330,78 @@ def apply_finish(im, finish):
     return im
 
 
+def extract_photo(im, want_flag=False):
+    """카드뉴스처럼 디자인 안에 사진이 박혀 있으면 그 사진만 잘라낸다.
+
+    카드는 배경이 단색이고 글자 줄은 배경과 다른 픽셀 비율이 낮다.
+    반면 사진 영역은 가로로 꽉 찬다. 그 성질로 위치를 찾는다.
+    일반 사진(꽉 찬 이미지)은 건드리지 않는다.
+    """
+    from collections import Counter
+
+    def result(img, ok):
+        return (img, ok) if want_flag else img
+
+    rgb = im.convert("RGB")
+    w, h = rgb.size
+    if w < 200 or h < 200:
+        return result(im, False)
+    px = rgb.load()
+    sx, sy = max(1, w // 200), max(1, h // 250)
+
+    bg = Counter(px[x, y] for y in range(0, h, sy)
+                 for x in range(0, w, sx)).most_common(1)[0][0]
+    tol = 42
+    far = lambda c: abs(c[0] - bg[0]) + abs(c[1] - bg[1]) + abs(c[2] - bg[2]) > tol
+    cover = 0.55
+
+    xs = range(0, w, sx)
+    rowf = [sum(far(px[x, y]) for x in xs) / len(xs) for y in range(h)]
+    rows = [y for y, f in enumerate(rowf) if f > cover]
+    if len(rows) < 60:
+        return result(im, False)
+
+    # 가장 긴 연속 구간이 사진일 가능성이 높다
+    best = cur = [rows[0], rows[0]]
+    for y in rows[1:]:
+        if y - cur[1] <= 3:
+            cur[1] = y
+        else:
+            if cur[1] - cur[0] > best[1] - best[0]:
+                best = cur
+            cur = [y, y]
+    if cur[1] - cur[0] > best[1] - best[0]:
+        best = cur
+    y0, y1 = best
+    if y1 - y0 < 80:
+        return result(im, False)
+
+    ys = range(y0, y1, sy)
+    colf = [sum(far(px[x, y]) for y in ys) / len(ys) for x in range(w)]
+    cs = [x for x, f in enumerate(colf) if f > cover]
+    if not cs:
+        return result(im, False)
+
+    box = (cs[0], y0, cs[-1] + 1, y1 + 1)
+    area = (box[2] - box[0]) * (box[3] - box[1]) / (w * h)
+    # 너무 작으면 오검출, 너무 크면 원래 꽉 찬 사진이라 자를 이유가 없다
+    if not (0.12 <= area <= 0.85):
+        return result(im, False)
+    return result(rgb.crop(box), True)
+
+
+def has_usable_photo(path):
+    """카드 안에 사진이 들어 있는가. 글자만 있는 CTA 카드를 걸러내는 데 쓴다."""
+    if Image is None:
+        return True
+    try:
+        with Image.open(path) as im:
+            _, ok = extract_photo(im, want_flag=True)
+        return ok
+    except Exception:
+        return True
+
+
 def convert_pillow(src, dst, style=None):
     """프리셋대로 비율·톤·마감을 적용한다. style이 None이면 가로폭만 맞춘다."""
     from PIL import Image, ImageEnhance
@@ -329,13 +409,16 @@ def convert_pillow(src, dst, style=None):
     im = Image.open(src)
     if im.mode != "RGB":
         im = im.convert("RGB")
+    # 카드뉴스라면 안에 박힌 사진만 꺼낸다 (글자·디자인 제거)
+    im, extracted = extract_photo(im, want_flag=True)
 
     if style is None:
         w, h = im.size
         im = im.resize((styles.BASE_WIDTH, max(1, round(h * styles.BASE_WIDTH / w))),
                        Image.LANCZOS)
     else:
-        im = fit_to(im, styles.size_for(style))
+        # 추출한 사진은 피사체에 이미 딱 맞아, 여백을 두기보다 잘라내는 편이 낫다
+        im = fit_to(im, styles.size_for(style), allow_crop=0.55 if extracted else None)
         im = ImageEnhance.Contrast(im).enhance(style["contrast"])
         im = ImageEnhance.Color(im).enhance(style["color"])
         im = ImageEnhance.Brightness(im).enhance(style["brightness"])
@@ -419,6 +502,13 @@ def main():
         # 원본 사진 수가 모자라므로 같은 사진이 편마다 다른 스타일로 반복된다.
         pool_e = sorted(IMAGES.glob("edukart*.png")) or sorted(IMAGES.glob("*.png"))
         pool_k = sorted(IMAGES.glob("kalli*.png")) or sorted(IMAGES.glob("*.png"))
+        # 글자만 있는 CTA 카드는 본문 사진으로 쓸 수 없다
+        before = len(pool_e) + len(pool_k)
+        pool_e = [q for q in pool_e if has_usable_photo(q)] or pool_e
+        pool_k = [q for q in pool_k if has_usable_photo(q)] or pool_k
+        dropped = before - len(pool_e) - len(pool_k)
+        if dropped:
+            print(f"    사진이 없는 카드 {dropped}장은 제외했습니다.")
         if not pool_e or not pool_k:
             sys.exit(f"images/ 에 재활용할 사진이 없습니다: {IMAGES}")
         # finish()가 images/ 를 images_prev/ 로 옮기므로, 원본을 먼저 임시 폴더로 빼둔다.
@@ -433,6 +523,9 @@ def main():
         kal = [pool_k[i % len(pool_k)] for i in range(need_kal)]
         print(f"⚠️  --from-existing: 원본 {len(pool_e)}+{len(pool_k)}장으로 "
               f"{need_edu}+{need_kal}장을 만듭니다. 같은 사진이 반복됩니다.")
+        print("    지금 images/ 에 있는 것이 카드뉴스(글자가 얹힌 디자인물)라면")
+        print("    결과물도 카드뉴스처럼 보입니다. 자연스러운 사진을 원하시면")
+        print("    드라이브 수집(옵션 없이 실행)이나 images_src/ 직접 투입을 쓰세요.")
         return finish(needs, edu, kal, args, {})
 
     drive_root = find_drive_root()
@@ -551,7 +644,10 @@ def finish(needs, edu, kal, args, tiers=None):
         def repl(_m):
             n = names[i[0]] if i[0] < len(names) else None
             i[0] += 1
-            return f"[[img:{n}]]" if n else _m.group(0)
+            if not n:
+                return _m.group(0)
+            caption = _m.group(2)          # 사진 설명은 그대로 살린다
+            return f"[[img:{n}|{caption}]]" if caption else f"[[img:{n}]]"
 
         path.write_text(MARKER.sub(repl, text), encoding="utf-8")
     print(f"원고 {len(plan)}편의 이미지 마커를 재배정했습니다.")
@@ -560,7 +656,7 @@ def finish(needs, edu, kal, args, tiers=None):
     seen = {}
     bad = False
     for path in article_files():
-        for name in MARKER.findall(path.read_text(encoding="utf-8")):
+        for name, _caption in MARKER.findall(path.read_text(encoding="utf-8")):
             if not (IMAGES / name).exists():
                 print(f"❌ 파일 없음: {name} ({path.name})")
                 bad = True

@@ -101,9 +101,10 @@ async function tempSave(page) {
   await page.waitForTimeout(2_000);
 }
 
-// 본문 안의 이미지 마커: 한 줄이 [[img:파일명]] 또는 [[image:파일명]] 이면
-// 그 위치(문맥)에 해당 이미지를 삽입한다. imagedir 기준으로 파일을 찾는다.
-const IMG_MARKER = /^\s*\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]\s*$/i;
+// 본문 안의 이미지 마커: 한 줄이 [[img:파일명]] 또는 [[img:파일명|설명]] 이면
+// 그 위치(문맥)에 이미지를 넣고, 설명이 있으면 사진 바로 아래 한 줄로 적는다.
+// imagedir 기준으로 파일을 찾는다.
+const IMG_MARKER = /^\s*\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]\s*$/i;
 
 // 에디터에 제목·본문·이미지를 채우고 임시저장한다 (브라우저 진입 이후 공통 로직).
 async function fillEditor(page, { title, content, images = [], imagedir = '' }) {
@@ -124,6 +125,12 @@ async function fillEditor(page, { title, content, images = [], imagedir = '' }) 
       if (fs.existsSync(imgPath)) {
         await insertImage(page, imgPath);
         usedMarkers.add(path.basename(imgPath));
+        // 사진 아래 설명 한 줄. 네이버 캡션 입력창은 자동화가 불안정해
+        // 본문 문단으로 넣는다 — 블로그에서 흔한 형태이고 읽는 데도 문제없다.
+        if (m[2]) {
+          await humanType(page, m[2]);
+          await page.keyboard.press('Enter');
+        }
       }
       continue;
     }

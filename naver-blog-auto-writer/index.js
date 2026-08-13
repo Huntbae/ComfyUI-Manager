@@ -122,7 +122,8 @@ const recordOn = () => !flag('no-record');
     {
       const pathMod = require('path');
       const dir = nx.config.imagedir || '';
-      const want = [...nx.body.matchAll(/\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]/gi)].map((m) => m[1]);
+      // [[img:파일명]] 과 [[img:파일명|설명]] 둘 다 — 파일명만 뽑는다
+      const want = [...nx.body.matchAll(/\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|[^\]]*)?\]\]/gi)].map((m) => m[1]);
       const missing = want.filter((n) => !fs.existsSync(dir ? pathMod.resolve(dir, n) : n));
       if (missing.length) {
         console.error(`❌ 이미지 ${missing.length}장이 없습니다: ${missing.join(', ')}`);
