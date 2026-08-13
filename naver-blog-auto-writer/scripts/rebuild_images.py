@@ -3,8 +3,11 @@
 구글 드라이브(맥에 마운트된 CloudStorage)에서 제품 사진을 모아
 images/ 를 다시 채우고, articles/ 의 [[img:...]] 마커를 겹치지 않게 재배정한다.
 
-- eDu Kart 편(홀수)에는 에듀카트 Ver.4/Ver.5 계열 사진만
-- 칼리 편(짝수)에는 칼리·뉴트로엠 계열 사진만
+사진은 3단계로 넓혀가며 찾는다. 앞 단계로 채워지면 다음 단계는 실행하지 않는다.
+  1단계 정밀 — 파일명·폴더명이 제품과 직접 맞는 것
+  2단계 확장 — 활동·부품 키워드 (안전정비 교육, 조립, 아두이노, 시승 ...)
+  3단계 전체 — 드라이브 전체 사진 중 품질 기준 통과분 (--no-sweep 으로 끌 수 있음)
+서류·판촉물·개인정보성 파일은 모든 단계에서 제외하고, 상대 제품 사진도 섞이지 않게 막는다.
 - 같은 이미지를 두 번 이상 쓰지 않는다 (한 편당 2장, 20편 = 40장 전부 서로 다름)
 - 편마다 다른 스타일을 입힌다 (비율·톤·마감). 프리셋은 scripts/styles.py 참고.
   한 편 안의 2장은 같은 스타일로 묶어 글이 따로 놀지 않게 한다.
@@ -16,6 +19,7 @@ Pillow가 있으면 쓰고, 없으면 macOS 기본 도구 sips로 넘어간다(�
     python3 scripts/rebuild_images.py --dry-run   # 무엇을 쓸지·어떤 스타일일지 확인만
     python3 scripts/rebuild_images.py             # 수집 + 편별 스타일 + 마커 재배정
     python3 scripts/rebuild_images.py --no-style  # 스타일 없이 가로폭만
+    python3 scripts/rebuild_images.py --no-sweep  # 드라이브 전체 훑기 없이 제품 사진만
 
 Ver.5 사진을 따로 갖고 계시면 images_src/edukart_v5/ 에 넣어두면 우선 사용된다.
 """
@@ -43,8 +47,13 @@ LOCAL_SRC = ROOT / "images_src"          # 사용자가 직접 넣어두는 추�
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
 MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*(.+?)\s*\]\]", re.I)
 
-# 드라이브 안에서 찾을 위치. 경로 전체가 아니라 '포함되면 통과'하는 키워드로 둔다.
-# (드라이브 계정·폴더 구조가 조금 달라도 걸리도록)
+# 사진을 찾는 방식은 3단계다. 앞 단계에서 필요한 만큼 못 채우면 다음 단계로 넓힌다.
+#   1단계 정밀 — 파일명/폴더명이 제품과 직접 맞는 것
+#   2단계 확장 — 활동·부품 관련 키워드까지
+#   3단계 전체 — 드라이브 전체 사진에서 품질 기준을 통과한 것
+# 어느 단계에서 뽑혔는지는 실행 결과에 함께 표시된다.
+
+# 1단계
 EDUKART_HINTS = [
     "에듀카트 v4", "에듀카트 V4", "에듀카트 Ver 4", "에듀카트 Ver.4", "에듀카트 Ver 5",
     "에듀카트 Ver.5", "에듀카트 v5", "에듀카트 V5",
@@ -55,11 +64,39 @@ KALLI_DIR_HINTS = [
     "개발 차량 이미지", "CYCLEKART_IMAGE", "Kalli", "Kalli-RC",
     "Kalli Craft", "newtroM", "차량 이미지", "차량이미지",
 ]
-# 칼리 쪽에서 제외할 것 — 서류 스캔·도면·QR 등 블로그에 쓰기 부적절한 파일
-KALLI_EXCLUDE = [
-    "실측확인", "제원", "통보서", "QR", "길찾기", "계약", "견적",
-    "재료비", "납품", "세금", "청구", "신청서", ".DS_Store",
+
+# 2단계 — 활동·부품·현장 사진까지 넓힌다
+EDUKART_HINTS_WIDE = [
+    "안전정비 교육", "안전정비 실습", "시범 교육", "시범교육", "실습",
+    "조립", "부품", "티어다운", "아두이노", "모터", "배터리", "배선", "프레임",
+    "카트", "kart", "레이싱", "메이커", "워크숍", "워크샵",
 ]
+KALLI_HINTS_WIDE = [
+    "칼리", "달리", "뉴트로", "사이클카트", "cyclekart", "마실카",
+    "시승", "체험", "전기차", "이모빌리티", "클래식", "빈티지",
+]
+
+# 어느 단계에서든 제외 — 블로그에 쓸 수 없는 것들
+JUNK = [
+    # 서류·행정
+    "실측확인", "제원", "통보서", "계약", "견적", "재료비", "납품", "세금", "청구",
+    "신청서", "공고", "입찰", "증빙", "보조금", "정산", "품의", "결재", "확인서",
+    "사업자", "등기", "면허", "보험", "약관", "규정", "회의록", "출장",
+    # 판촉물·화면
+    "QR", "큐알", "현수막", "배너", "x배너", "포스터", "명함", "리플렛", "팜플렛",
+    "스크린샷", "screenshot", "캡처", "화면", "페이지", "썸네일",
+    "로고", "logo", "icon", "아이콘", "엠블럼", "폰트",
+    # 개인정보 — 절대 블로그에 올라가면 안 되는 것
+    "주민", "여권", "신분증", "통장", "이력서", "서명", "도장", "인감", "가족", "졸업",
+    ".DS_Store",
+]
+# 하위 호환 (예전 이름을 참조하는 코드가 있어도 동작하도록)
+KALLI_EXCLUDE = JUNK
+
+# 3단계 전체 훑기의 품질 기준 — 아이콘·썸네일·문서 스캔을 거른다
+SWEEP_MIN_BYTES = 120_000
+SWEEP_MIN_WIDTH = 800
+SWEEP_ASPECT = (0.45, 2.6)
 
 
 def find_drive_root():
@@ -90,36 +127,104 @@ def walk_images(root, max_depth=8):
                 yield Path(dirpath) / fn
 
 
-def collect_edukart(drive_root):
-    """에듀카트 Ver.4/Ver.5 계열 사진. 파일명 힌트로 고른다."""
-    found = []
-    # 사용자가 직접 넣어둔 Ver.5 사진을 최우선으로
-    v5_dir = LOCAL_SRC / "edukart_v5"
-    if v5_dir.exists():
-        found.extend(sorted(walk_images(v5_dir)))
-    if drive_root:
-        for path in walk_images(drive_root):
-            name = path.name
-            if any(h.lower() in name.lower() for h in EDUKART_HINTS):
-                found.append(path)
-    return dedupe(found)
+def is_junk(path):
+    """서류·판촉물·개인정보처럼 블로그에 쓸 수 없는 파일인가."""
+    full = str(path).lower()
+    return any(x.lower() in full for x in JUNK)
 
 
-def collect_kalli(drive_root):
-    """칼리·뉴트로엠 계열 사진. 폴더 힌트로 고르고 서류류는 뺀다."""
+def passes_quality(path):
+    """3단계 전체 훑기용 품질 기준. 아이콘·썸네일·문서 스캔을 거른다."""
+    try:
+        if path.stat().st_size < SWEEP_MIN_BYTES:
+            return False
+    except OSError:
+        return False
+    if Image is None:
+        return True  # Pillow가 없으면 크기 기준만으로 통과
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+    except Exception:
+        return False
+    if w < SWEEP_MIN_WIDTH:
+        return False
+    ratio = w / h if h else 0
+    return SWEEP_ASPECT[0] <= ratio <= SWEEP_ASPECT[1]
+
+
+def collect_tiered(kind, drive_root, need, sweep=True):
+    """3단계로 넓혀가며 사진을 모은다. (경로 리스트, 경로→단계 표시) 를 돌려준다.
+
+    1단계에서 need 만큼 채워지면 거기서 멈춘다. 모자랄 때만 다음 단계로 간다.
+    """
+    tier_of = {}
     found = []
-    local_dir = LOCAL_SRC / "kalli"
-    if local_dir.exists():
-        found.extend(sorted(walk_images(local_dir)))
-    if drive_root:
-        for path in walk_images(drive_root):
-            full = str(path)
-            if not any(h in full for h in KALLI_DIR_HINTS):
+
+    def add(paths, tier):
+        for p in paths:
+            if p in tier_of or is_junk(p):
                 continue
-            if any(x.lower() in full.lower() for x in KALLI_EXCLUDE):
-                continue
-            found.append(path)
-    return dedupe(found)
+            tier_of[p] = tier
+            found.append(p)
+
+    # 0단계 — 사용자가 직접 넣어둔 사진이 최우선
+    local = LOCAL_SRC / ("edukart_v5" if kind == "edukart" else "kalli")
+    if local.exists():
+        add(sorted(walk_images(local)), "직접 넣음")
+
+    if not drive_root:
+        return dedupe(found), tier_of
+
+    # 드라이브는 크다. 한 번만 훑고 재사용한다.
+    all_images = [p for p in walk_images(drive_root)]
+
+    # 1단계 — 정밀
+    if kind == "edukart":
+        hits = [p for p in all_images
+                if any(h.lower() in p.name.lower() for h in EDUKART_HINTS)]
+    else:
+        hits = [p for p in all_images
+                if any(h in str(p) for h in KALLI_DIR_HINTS)]
+    add(hits, "1단계 정밀")
+    if len(dedupe(found)) >= need:
+        return dedupe(found), tier_of
+
+    # 2단계 — 활동·부품 키워드까지 확장
+    wide = EDUKART_HINTS_WIDE if kind == "edukart" else KALLI_HINTS_WIDE
+    hits = [p for p in all_images
+            if any(h.lower() in str(p).lower() for h in wide)]
+    add(hits, "2단계 확장")
+    if len(dedupe(found)) >= need:
+        return dedupe(found), tier_of
+
+    if not sweep:
+        return dedupe(found), tier_of
+
+    # 3단계 — 드라이브 전체에서 품질 기준을 통과한 사진
+    # 최근 것부터 본다. 오래된 파일일수록 지금 브랜드와 안 맞을 가능성이 크다.
+    # 상대 제품 사진은 뺀다. 에듀카트 자리에 칼리 사진이 들어가면 글과 맞지 않는다.
+    if kind == "edukart":
+        other = KALLI_DIR_HINTS + KALLI_HINTS_WIDE
+    else:
+        other = EDUKART_HINTS + EDUKART_HINTS_WIDE
+    rest = [p for p in all_images
+            if p not in tier_of
+            and not is_junk(p)
+            and not any(h.lower() in str(p).lower() for h in other)]
+    try:
+        rest.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        pass
+    swept = []
+    for p in rest:
+        if passes_quality(p):
+            swept.append(p)
+        if len(dedupe(found)) + len(swept) >= need:
+            break
+    add(swept, "3단계 전체")
+
+    return dedupe(found), tier_of
 
 
 def dedupe(paths):
@@ -287,6 +392,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="수집·재배정 계획만 출력")
     ap.add_argument("--no-style", action="store_true",
                     help="스타일 적용 없이 가로폭만 맞춘다")
+    ap.add_argument("--no-sweep", action="store_true",
+                    help="3단계(드라이브 전체 훑기)를 하지 않는다. 제품 사진만 쓴다")
     ap.add_argument("--from-existing", action="store_true",
                     help="구글 드라이브 대신 현재 images/ 사진을 돌려써서 채운다 "
                          "(같은 사진이 다른 스타일로 여러 번 쓰임 — 임시 방편)")
@@ -326,7 +433,7 @@ def main():
         kal = [pool_k[i % len(pool_k)] for i in range(need_kal)]
         print(f"⚠️  --from-existing: 원본 {len(pool_e)}+{len(pool_k)}장으로 "
               f"{need_edu}+{need_kal}장을 만듭니다. 같은 사진이 반복됩니다.")
-        return finish(needs, edu, kal, args)
+        return finish(needs, edu, kal, args, {})
 
     drive_root = find_drive_root()
     if drive_root is None:
@@ -337,10 +444,29 @@ def main():
         print(f"드라이브: {drive_root}")
 
     print("사진을 찾는 중입니다. 드라이브 크기에 따라 1~2분 걸릴 수 있습니다...")
-    edu = collect_edukart(drive_root)
-    kal = collect_kalli(drive_root)
-    print(f"  에듀카트 후보 {len(edu)}장 / 필요 {need_edu}장")
-    print(f"  칼리 후보 {len(kal)}장 / 필요 {need_kal}장")
+    print("  (1단계 정밀 → 모자라면 2단계 확장 → 그래도 모자라면 드라이브 전체)")
+    sweep = not args.no_sweep
+    edu, tier_edu = collect_tiered("edukart", drive_root, need_edu, sweep)
+    kal, tier_kal = collect_tiered("kalli", drive_root, need_kal, sweep)
+    tiers = {**tier_edu, **tier_kal}
+    def by_tier(paths):
+        from collections import Counter
+        c = Counter(tiers.get(p, "?") for p in paths)
+        return ", ".join(f"{k} {v}장" for k, v in c.items()) or "없음"
+
+    print(f"  에듀카트 후보 {len(edu)}장 / 필요 {need_edu}장  ({by_tier(edu)})")
+    print(f"  칼리 후보 {len(kal)}장 / 필요 {need_kal}장  ({by_tier(kal)})")
+
+    swept = [p for p in edu + kal if tiers.get(p) == "3단계 전체"]
+    if swept:
+        print()
+        print("⚠️  제품 사진이 모자라 드라이브 전체에서 " + str(len(swept)) + "장을 가져왔습니다.")
+        print("    제품과 무관한 사진일 수 있으니 아래 목록을 꼭 확인하세요.")
+        for q in swept:
+            print(f"      {q}")
+        print("    원치 않으면 --no-sweep 을 붙여 3단계를 끄거나,")
+        print("    images_src/edukart_v5/ · images_src/kalli/ 에 직접 사진을 넣으세요.")
+        print()
 
     short = []
     if len(edu) < need_edu:
@@ -356,10 +482,11 @@ def main():
 
     edu = spread(edu, need_edu)
     kal = spread(kal, need_kal)
-    return finish(needs, edu, kal, args)
+    return finish(needs, edu, kal, args, tiers)
 
 
-def finish(needs, edu, kal, args):
+def finish(needs, edu, kal, args, tiers=None):
+    tiers = tiers or {}
 
     # 배정: 원고 순서대로 앞에서부터 하나씩 꺼내 쓴다 (재사용 없음)
     plan, used = [], set()
@@ -391,7 +518,7 @@ def finish(needs, edu, kal, args):
         print(f"  {path.name} [{st}] → {names}")
         for s, d in picks:
             if s:
-                print(f"        {d}  ←  {s}")
+                print(f"        {d}  ←  [{tiers.get(s, '-')}] {s}")
 
     if args.dry_run:
         print("\n(--dry-run 이므로 파일을 만들지 않았습니다)")
