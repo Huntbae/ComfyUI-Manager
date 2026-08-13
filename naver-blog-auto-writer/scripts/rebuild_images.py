@@ -102,19 +102,62 @@ SWEEP_MIN_WIDTH = 800
 SWEEP_ASPECT = (0.45, 2.6)
 
 
-def find_drive_root():
-    """마운트된 구글 드라이브의 '내 드라이브' 경로를 찾는다."""
+# 구글 드라이브 마운트 안에서 볼 최상위들. 계정마다 이름이 한글/영문으로 갈린다.
+DRIVE_SUBROOTS = [
+    ("내 드라이브", "내 드라이브"), ("내 드라이브", "My Drive"),
+    ("공유 드라이브", "공유 드라이브"), ("공유 드라이브", "Shared drives"),
+    ("공유 문서함", "공유 문서함"), ("공유 문서함", "Shared with me"),
+]
+# 드라이브 밖에 따로 두는 작업 폴더 후보
+LOCAL_CANDIDATES = [
+    "Work Files", "WorkFiles", "Workfiles", "workfiles",
+    "Documents/Work Files", "Documents/WorkFiles", "Documents/Workfiles",
+    "Desktop/Work Files", "Desktop/WorkFiles",
+]
+
+
+def find_roots(extra=()):
+    """사진을 찾을 최상위 폴더들을 모은다.
+
+    구글 드라이브의 내 드라이브·공유 드라이브·공유 문서함을 모두 보고,
+    드라이브 밖의 Work Files 류 폴더도 후보에 넣는다.
+    --src 로 준 경로가 있으면 함께 본다.
+    돌려주는 값: [(표시이름, 경로), ...]
+    """
+    roots, seen = [], set()
+
+    def add(label, path):
+        try:
+            rp = Path(path).resolve()
+        except OSError:
+            return
+        if rp in seen or not rp.exists():
+            return
+        seen.add(rp)
+        roots.append((label, rp))
+
+    for e in extra:
+        add("직접 지정", e)
+
     base = Path.home() / "Library" / "CloudStorage"
-    if not base.exists():
-        return None
-    for entry in sorted(base.iterdir()):
-        if not entry.name.startswith("GoogleDrive-"):
-            continue
-        for name in ("내 드라이브", "My Drive"):
-            candidate = entry / name
-            if candidate.exists():
-                return candidate
-    return None
+    if base.exists():
+        for entry in sorted(base.iterdir()):
+            if not entry.name.startswith("GoogleDrive-"):
+                continue
+            acct = entry.name.replace("GoogleDrive-", "")
+            for label, sub in DRIVE_SUBROOTS:
+                add(f"{label} ({acct})", entry / sub)
+
+    for rel in LOCAL_CANDIDATES:
+        add("로컬 작업폴더", Path.home() / rel)
+
+    return roots
+
+
+def find_drive_root():
+    """하위 호환 — 첫 번째 루트만 돌려준다."""
+    roots = find_roots()
+    return roots[0][1] if roots else None
 
 
 def walk_images(root, max_depth=8):
@@ -156,7 +199,7 @@ def passes_quality(path):
     return SWEEP_ASPECT[0] <= ratio <= SWEEP_ASPECT[1]
 
 
-def collect_tiered(kind, drive_root, need, sweep=True):
+def collect_tiered(kind, roots, need, sweep=True):
     """3단계로 넓혀가며 사진을 모은다. (경로 리스트, 경로→단계 표시) 를 돌려준다.
 
     1단계에서 need 만큼 채워지면 거기서 멈춘다. 모자랄 때만 다음 단계로 간다.
@@ -176,11 +219,13 @@ def collect_tiered(kind, drive_root, need, sweep=True):
     if local.exists():
         add(sorted(walk_images(local)), "직접 넣음")
 
-    if not drive_root:
+    if not roots:
         return dedupe(found), tier_of
 
-    # 드라이브는 크다. 한 번만 훑고 재사용한다.
-    all_images = [p for p in walk_images(drive_root)]
+    # 폴더가 크다. 한 번만 훑고 재사용한다.
+    all_images = []
+    for _label, root in roots:
+        all_images.extend(walk_images(root))
 
     # 1단계 — 정밀
     if kind == "edukart":
@@ -475,6 +520,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="수집·재배정 계획만 출력")
     ap.add_argument("--no-style", action="store_true",
                     help="스타일 적용 없이 가로폭만 맞춘다")
+    ap.add_argument("--src", action="append", default=[], metavar="경로",
+                    help="검색할 폴더를 직접 추가한다 (여러 번 쓸 수 있음)")
     ap.add_argument("--no-sweep", action="store_true",
                     help="3단계(드라이브 전체 훑기)를 하지 않는다. 제품 사진만 쓴다")
     ap.add_argument("--from-existing", action="store_true",
@@ -528,19 +575,22 @@ def main():
         print("    드라이브 수집(옵션 없이 실행)이나 images_src/ 직접 투입을 쓰세요.")
         return finish(needs, edu, kal, args, {})
 
-    drive_root = find_drive_root()
-    if drive_root is None:
-        print("⚠️  마운트된 구글 드라이브를 찾지 못했습니다.")
+    roots = find_roots(args.src)
+    if not roots:
+        print("⚠️  찾을 폴더가 없습니다.")
         print("    Finder에서 구글 드라이브가 연결돼 있는지 확인하세요.")
         print(f"    (또는 {LOCAL_SRC}/edukart_v5, {LOCAL_SRC}/kalli 에 사진을 직접 넣어두세요)")
+        print("    특정 폴더를 직접 지정하려면 --src <경로> 를 쓰세요.")
     else:
-        print(f"드라이브: {drive_root}")
+        print("검색할 폴더:")
+        for label, r in roots:
+            print(f"  [{label}] {r}")
 
     print("사진을 찾는 중입니다. 드라이브 크기에 따라 1~2분 걸릴 수 있습니다...")
     print("  (1단계 정밀 → 모자라면 2단계 확장 → 그래도 모자라면 드라이브 전체)")
     sweep = not args.no_sweep
-    edu, tier_edu = collect_tiered("edukart", drive_root, need_edu, sweep)
-    kal, tier_kal = collect_tiered("kalli", drive_root, need_kal, sweep)
+    edu, tier_edu = collect_tiered("edukart", roots, need_edu, sweep)
+    kal, tier_kal = collect_tiered("kalli", roots, need_kal, sweep)
     tiers = {**tier_edu, **tier_kal}
     def by_tier(paths):
         from collections import Counter

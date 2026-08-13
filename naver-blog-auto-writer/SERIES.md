@@ -62,7 +62,23 @@ python3 scripts/rebuild_images.py --dry-run        # 계획만 확인
 python3 scripts/rebuild_images.py                  # 구글 드라이브에서 수집
 python3 scripts/rebuild_images.py --no-sweep       # 제품 사진만 (전체 훑기 끔)
 python3 scripts/rebuild_images.py --from-existing  # 드라이브 없이 기존 사진으로 (임시)
+python3 scripts/rebuild_images.py --src ~/어떤폴더    # 검색 폴더 직접 추가
 ```
+
+### 어디서 찾나
+
+한 곳만 보지 않는다. 실행하면 검색할 폴더 목록을 먼저 출력한다.
+
+| 대상 | 경로 |
+|---|---|
+| 내 드라이브 | `~/Library/CloudStorage/GoogleDrive-*/내 드라이브` |
+| 공유 드라이브 | `.../공유 드라이브` (또는 `Shared drives`) |
+| 공유 문서함 | `.../공유 문서함` (또는 `Shared with me`) |
+| 로컬 작업폴더 | `~/Work Files`, `~/Documents/Work Files` 등 |
+| 직접 지정 | `--src <경로>` (여러 번 사용 가능) |
+
+계정이 여러 개면 계정마다 세 갈래를 모두 본다. 한글·영문 폴더명 둘 다 인식한다.
+`내 드라이브/Work Files/클랜헌트` 처럼 드라이브 안에 있는 작업폴더는 내 드라이브를 돌 때 함께 잡힌다.
 
 ### 사진을 찾는 3단계
 

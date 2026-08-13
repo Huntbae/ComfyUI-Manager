@@ -36,6 +36,8 @@
   개발자도구로 실제 클래스명을 확인 → `SEL`/셀렉터 갱신 → 재실행.
 - 복구 팝업/도움말 패널이 클릭을 가로채면 `dismissRecoveryPopup`/`closeHelpPanel`의
   셀렉터를 실제 팝업 DOM에 맞게 보강.
+- 사진이 모자라면 `python3 scripts/rebuild_images.py` 로 다시 모은다. 내 드라이브·공유 드라이브·
+  공유 문서함·로컬 Work Files를 모두 훑고, 모자라면 단계적으로 범위를 넓힌다 (`SERIES.md` 참고).
 - 이미지가 안 들어가면 `images/` 파일 존재와 `config.json`의 `imagedir`를 확인.
   `next`는 실행 전에 사진 존재를 점검하고, 없으면 멈춘다 (사진 없이 글만 올라가는 사고 방지).
 
