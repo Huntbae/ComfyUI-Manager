@@ -1,8 +1,8 @@
 # 07. 실측 결과 — Phase 0 코퍼스 분석
 
-**대상**: 실제 Xmind 앱으로 작성된 `.xmind` 파일 5개 (2025-01 ~ 2026-01 작성, 총 252 토픽)
-**분석 일자**: 2026-08-12
-**도구**: `tools/schema-extract`, `tools/roundtrip` (본 문서 §6에 소스 위치)
+**대상**: 실제 Xmind 앱으로 작성된 `.xmind` 파일 **6개** (2024-12 ~ 2026-01 작성, 총 **270 토픽**)
+**분석 일자**: 2026-08-12 (2차 갱신)
+**도구**: `tools/schema_extract.py`, `tools/topic_fields.py`, `tools/roundtrip.py` (본 문서 §9)
 
 이 문서는 [01번 문서](01-xmind-format.md)의 `[추정]` 항목을 실제 파일로 검증한 결과다.
 
@@ -17,8 +17,12 @@
 | f3 | 2025 주요업무 | 1 | 58 | `logic.right` | 관계선 8 |
 | f4 | 2025 상반기 주요업무 | 1 | 67 | `logic.right` | notes 4, position 29, customWidth 29 |
 | f5 | (인구소멸/마을버스) | 1 | 28 | `logic.right` | **플로팅 토픽 3**, 이미지 1(SVG), `importantTopic` |
+| f6 | TAZZARI_Proj | 1 | 18 | `logic.right` | **PNG 이미지 4**, `titleUnedited`, 아카이브 11엔트리 |
 
 전부 modern(`content.json`) 포맷. legacy 파일은 코퍼스에 없음.
+
+> 2차 수집분 3개 중 2개는 기존 파일과 **MD5가 동일한 중복**이어서 f6만 신규로 편입했다.
+> 중복 판별은 `md5sum`으로 먼저 거르는 것을 절차에 넣을 것.
 
 ---
 
@@ -41,8 +45,8 @@ resources/<sha256>.svg
 {"file-entries":{"content.json":{},"metadata.json":{},"Thumbnails/thumbnail.png":{}}}
 ```
 
-**`content.xml`이 아카이브에 실재하는데 manifest에는 없다.** 5개 파일 전부 그렇다.
-이미지가 있는 f5만 `resources/...svg` 항목이 추가된다.
+**`content.xml`이 아카이브에 실재하는데 manifest에는 없다.** 6개 파일 전부 그렇다.
+이미지가 있는 파일만 `resources/…` 항목이 추가된다 (PNG 4개짜리 f6도 4개 전부 등록).
 
 → **manifest를 "아카이브에 무엇이 있는지"의 근거로 삼으면 안 된다.**
    ZIP 엔트리 목록이 진실이고, manifest는 리소스 등록부에 가깝다.
@@ -50,7 +54,7 @@ resources/<sha256>.svg
 
 ### 🚨 발견 2 — `content.xml`은 콘텐츠가 아니라 "경고 스텁"이다
 
-5개 파일의 `content.xml`이 **MD5까지 완전히 동일**하다 (`6115c57b…`, 4309 bytes).
+6개 파일의 `content.xml`이 **MD5까지 완전히 동일**하다 (`6115c57b…`, 4309 bytes).
 내용은 구버전 XMind로 열었을 때 표시되는 다국어 경고문이다:
 
 ```xml
@@ -78,7 +82,7 @@ Warnung
 ```
 
 - `creator.name`이 **`"Vana"`** — XMind의 내부 코드네임. `"Xmind"`가 아니다.
-- `layoutEngineVersion`: `"3"`(f1~f4) / `"4"`(f5, 2026년 파일) — **엔진 버전이 올라가고 있다.**
+- `layoutEngineVersion`: `"3"`(f1~f4, f6) / `"4"`(f5, 2026년 파일) — **엔진 버전이 올라가고 있다.**
 - f2에만 `familyId`, f5에만 `Author` / `Create.Time` / `Share.LanguageChannel`.
   → **파일마다 키 집합이 다르다.** 고정 스키마로 재생성하면 정보가 사라진다.
 
@@ -89,14 +93,15 @@ Warnung
 | 필드 | 이전 | 결과 | 근거 |
 |---|---|---|---|
 | `children.detached[]` | `[추정]` | ✅ **확인** | f5에 3개. `position` 좌표 동반 |
-| `image` (`xap:` 스킴) | `[추정]` | ✅ **확인** | f5: `xap:resources/<sha256>.svg`, `width/height/align` |
+| `titleUnedited` | (미발견) | ✅ **신규 확인** | f6에 2개 — §3.1 |
+| `image` (`xap:` 스킴) | `[추정]` | ✅ **확인** | SVG 1 + PNG 4. `src` 외 전부 선택 필드 — §3.2 |
 | `position` `{x,y}` | `[추정]` | ✅ **확인** | 36회. float |
 | `customWidth` | `[추정]` | ✅ **확인** | 31회. int |
 | `attributedTitle` | `[추정]` | ✅ **확인** | f2에 9회. §4에서 별도 분석 |
 | `relationships[]` | `[추정]` | ✅ **확인** | 18개. `end1Id/end2Id/title/controlPoints/lineEndPoints` |
 | `notes.plain` / `notes.realHTML` | `[확인]` | ✅ 재확인 | f4. `realHTML`은 `<ul><li>` 등 실제 HTML |
 | `markers[]` | `[추정]` | ⚠️ **미검증** | 코퍼스에 마커 사용 사례 없음 |
-| `boundaries[]` | `[추정]` | ⚠️ **미검증** | 사용 사례 없음. 단 `theme.boundary`는 5개 전부 존재 |
+| `boundaries[]` | `[추정]` | ⚠️ **미검증** | 사용 사례 없음. 단 `theme.boundary`는 6개 전부 존재 |
 | `summaries[]` / `children.summary` | `[추정]` | ⚠️ **미검증** | 사용 사례 없음. `theme.summary` / `theme.summaryTopic`은 존재 |
 | `children.callout[]` | `[추정]` | ⚠️ **미검증** | 사용 사례 없음. `theme.calloutTopic`은 존재 |
 
@@ -108,18 +113,51 @@ Warnung
 
 | 필드 | 위치 | 값 | 의미 |
 |---|---|---|---|
-| `revisionId` | sheet | UUID | 5개 전부 존재. 버전 추적용 |
-| `topicPositioning` | sheet | `"fixed"` | 4개 |
+| `revisionId` | sheet | UUID | 6개 중 5개. 버전 추적용 |
+| `topicPositioning` | sheet | `"fixed"` | 5개 |
 | `topicOverlapping` | sheet | `"overlap"` | 2개 |
 | `extensions[].provider` | sheet | `org.xmind.ui.skeleton.structure.style` | **§5 참조 — 중요** |
 | `class` | topic | `"topic"` / **`"importantTopic"`** | 토픽 역할 구분 |
 | `extensions[].provider` | rootTopic | `org.xmind.ui.map.unbalanced` + `right-number` | 좌우 분배 정보 |
 | `theme.level3` | sheet | — | f5(엔진 v4)에만 존재 |
+| **`titleUnedited`** | topic | `true` | **§3.1 — 편집기 필수 처리** |
 
-`theme` 최상위 키 15종 (5개 파일 공통):
+`theme` 최상위 키 15종 (전 파일 공통):
 `map, centralTopic, mainTopic, subTopic, minorTopic, importantTopic, expiredTopic,
 floatingTopic, calloutTopic, summaryTopic, summary, boundary, relationship,
 colorThemeId, skeletonThemeId`
+
+### 3.1 🚨 발견 6 — `titleUnedited`는 "아직 안 고친 기본 텍스트" 표시다
+
+f6에서 2건 관찰:
+
+```json
+{ "title": "주요 주제 3", "titleUnedited": true }
+{ "title": "주요 주제 4", "titleUnedited": true }
+```
+
+노드를 새로 만들면 XMind가 `"주요 주제 N"` 같은 **자리표시자 제목**을 넣고 이 플래그를 세운다.
+사용자가 실제로 타이핑하면 플래그가 사라진다.
+
+**편집기 구현 규칙**: 텍스트 편집 Command는 `attributedTitle` 삭제(§4)와 함께
+**`titleUnedited`도 제거**해야 한다. 남겨두면 XMind가 그 노드를 여전히 "미입력" 상태로 취급해,
+자리표시자로 되돌리거나 자동 선택 동작을 다르게 할 수 있다.
+
+→ 텍스트 편집 시 건드려야 할 필드가 **3개**로 늘었다: `title`, `attributedTitle`, `titleUnedited`.
+
+### 3.2 발견 7 — `image`는 `src` 외 전부 선택 필드다
+
+전 코퍼스 이미지 5건의 키 조합:
+
+| 조합 | 건수 |
+|---|---|
+| `src` 만 | 3 |
+| `src` + `align` | 1 |
+| `src` + `width` + `height` + `align` | 1 |
+
+→ **`width`/`height`를 필수로 가정하고 파싱하면 3/5가 깨진다.**
+   크기 미지정 = 원본 크기 사용이라는 뜻이므로, 렌더링 시 리소스를 읽어 실제 치수를 구해야 한다.
+   저장 시에도 **원래 없던 `width`/`height`를 임의로 채워 넣지 않는다** (바이트 동등이 깨진다).
 
 ---
 
@@ -183,7 +221,7 @@ f2(피시본)에서:
 ### 실측된 `structureClass` 값
 
 ```
-org.xmind.ui.logic.right          (4개 파일)
+org.xmind.ui.logic.right          (5개 파일)
 org.xmind.ui.fishbone.leftHeaded  (1개 파일)
 org.xmind.ui.tree.right           (f2 mainTopic)
 org.xmind.ui.map.unbalanced       (f5 rootTopic.extensions provider)
@@ -208,6 +246,7 @@ org.xmind.ui.map.unbalanced       (f5 rootTopic.extensions provider)
 | f3 | 58 | 58 | 0 | **8** | class, style |
 | f4 | 67 | 67 | 0 | **1** | class, customWidth, position, style |
 | f5 | 28 | 25 | **3** | **1** | class, customWidth, **extensions, image**, position, style |
+| f6 | 18 | 18 | 0 | 0 | attributedTitle, class, **image**, **titleUnedited** |
 
 시트 레벨 유실: `extensions, relationships, revisionId, style, theme, topicOverlapping, topicPositioning`
 
@@ -236,10 +275,11 @@ image          1
 | f3 | 14449 | 14449 | ✅ PASS | ✅ PASS |
 | f4 | 21912 | 21912 | ✅ PASS | ✅ PASS |
 | f5 | 11944 | 11944 | ✅ PASS | ✅ PASS |
+| f6 | 10230 | 10230 | ✅ PASS | ✅ PASS |
 
 ### 🎯 발견 5 — XMind의 직렬화 방식을 정확히 재현했다
 
-**5개 파일 전부 바이트 단위로 동일**하다. 조건:
+**6개 파일 전부 바이트 단위로 동일**하다. 조건:
 
 ```python
 json.dumps(ast, ensure_ascii=False, separators=(",", ":"))
@@ -267,8 +307,13 @@ ZIP 엔트리를 순서까지 보존하고 `content.json`만 교체해 다시 �
 | 2025 주요업무 | 6 | ✅ | ✅ | ✅ |
 | 2025 상반기 주요업무 | 6 | ✅ | ✅ | ✅ |
 | (인구소멸/마을버스) | 8 | ✅ | ✅ | ✅ |
+| **TAZZARI_Proj** | **11** | ✅ | ✅ | ✅ |
 
-## ✅ **Phase 0 게이트 통과 — 무편집 왕복 무손실 5/5**
+TAZZARI 파일은 **PNG 리소스 4개 + 디렉터리 엔트리 2개로 11엔트리**다.
+다중 리소스 아카이브에서도 엔트리 순서·내용이 그대로 보존됨을 확인했다.
+manifest에는 PNG 4개와 썸네일이 전부 등록돼 있지만 **`content.xml`은 여전히 빠져 있다**(§2 발견 1 재확인).
+
+## ✅ **Phase 0 게이트 통과 — 무편집 왕복 무손실 6/6**
 
 [05번 로드맵](05-roadmap.md)이 요구한 게이트를 **아키텍처 가정대로 통과**했다.
 preserve-and-patch 전략이 실제 파일에서 작동함이 실증됐다.
@@ -290,18 +335,28 @@ preserve-and-patch 전략이 실제 파일에서 작동함이 실증됐다.
 
 ## 8. 다음 샘플 수집 요청
 
-아래 4가지를 사용한 `.xmind`가 있으면 남은 `[추정]`이 전부 해소된다.
+6개를 모았지만 **아래 4가지는 여전히 코퍼스에 사용 사례가 없다.**
+업무용 맵은 대체로 텍스트·계층 위주라 이 기능들이 잘 안 쓰인 것으로 보인다.
 
 - [ ] **마커/아이콘** — 우선순위, 깃발, 별, 스마일 등 (`markers[]`)
 - [ ] **경계선(Boundary)** — 여러 노드를 묶은 테두리 (`boundaries[]`)
 - [ ] **요약(Summary)** — 자식 범위를 묶어 요약 노드 생성 (`summaries[]`, `children.summary`)
 - [ ] **말풍선(Callout)** — 노드에 붙는 주석 (`children.callout`)
 
+> **권고**: 실제 업무 파일을 더 뒤지는 것보다 **테스트용 맵 1개를 새로 만드는 편이 빠르다.**
+> XMind에서 빈 맵을 열고 위 4가지를 한 번씩 넣은 뒤 시트 탭을 하나 추가해 저장하면
+> 남은 항목이 한 번에 해소된다. 실제 업무 내용을 담을 필요도 없다.
+
 추가로 있으면 좋은 것:
-- [ ] **다중 시트** (탭 2개 이상) — 현재 코퍼스는 전부 단일 시트
+- [ ] **다중 시트** (탭 2개 이상) — 현재 코퍼스 6개가 **전부 단일 시트**
 - [ ] **legacy 파일** (XMind 8 이하로 저장한 것) — legacy 읽기 경로 검증용
 - [ ] **첨부파일**이 들어간 맵 — `resources/` 비이미지 처리 검증
-- [ ] **대형 맵** (1,000+ 노드) — 성능 측정용
+- [ ] **대형 맵** (1,000+ 노드) — 현재 최대 67 토픽. 성능 측정 불가
+
+### 수집 절차 메모
+
+2차 수집분 3개 중 2개가 기존 파일과 MD5 동일한 중복이었다.
+**`md5sum`으로 먼저 중복을 거르고 편입**하는 단계를 넣을 것.
 
 ---
 

@@ -5,7 +5,7 @@
 > `[실측]` = **실제 `.xmind` 파일 코퍼스에서 직접 관찰됨** — 가장 높은 신뢰도
 > `[추정]` = 다수 구현체에서 관찰되나 1차 출처 미확인 — 실측 검증 필요
 >
-> 📊 **실측 코퍼스 5개 파일 / 252 토픽 분석 완료.** 상세 결과는 [07번 문서](07-corpus-measurement.md).
+> 📊 **실측 코퍼스 6개 파일 / 270 토픽 분석 완료.** 상세 결과는 [07번 문서](07-corpus-measurement.md).
 > 아래 본문은 그 결과를 반영해 갱신되었다.
 
 ---
@@ -41,7 +41,7 @@ else → 지원하지 않는 파일
 ### 🚨 이 순서는 선택이 아니라 필수다 `[실측]`
 
 **modern 파일에도 `content.xml`이 함께 들어 있다.** 그런데 그 내용은 마인드맵이 아니라
-구버전 XMind용 **경고 스텁**이다. 코퍼스 5개 파일의 `content.xml`이 MD5까지 동일하며
+구버전 XMind용 **경고 스텁**이다. 코퍼스 **6개 파일 전부** `content.xml`의 MD5가 동일하며
 (4309 bytes), 타임스탬프가 2017년으로 고정된 상수다:
 
 ```xml
@@ -74,7 +74,7 @@ myfile.xmind
 └── content.xml               # (선택) 구버전 호환용 XML 스켈레톤
 ```
 
-`[실측]` — 코퍼스 5개 파일이 정확히 이 구성이다. `Thumbnails/`는 길이 0의
+`[실측]` — 코퍼스 6개 파일이 정확히 이 구성이다. `Thumbnails/`는 길이 0의
 **디렉터리 엔트리로도 별도 존재**하므로 ZIP 재작성 시 빠뜨리지 않도록 주의한다.
 
 ### 2.2 `metadata.json` 실제 형태 `[실측]`
@@ -99,10 +99,10 @@ myfile.xmind
 {"file-entries":{"content.json":{},"metadata.json":{},"Thumbnails/thumbnail.png":{}}}
 ```
 
-이미지가 있는 파일만 `"resources/<sha256>.svg":{}`가 추가된다.
+이미지가 있는 파일만 `"resources/<sha256>.<ext>":{}`가 추가된다 (PNG 4개짜리 파일도 전부 등록됨).
 
 **🚨 manifest는 완전한 등록부가 아니다.** `content.xml`이 아카이브에 실재하는데
-manifest에는 **없다**(5개 파일 전부). 즉 manifest ≠ ZIP 엔트리 목록이다.
+manifest에는 **없다**(6개 파일 전부). 즉 manifest ≠ ZIP 엔트리 목록이다.
 
 → ZIP 엔트리 목록을 진실로 삼고, manifest는 **리소스 항목만 증분 동기화**한다.
    manifest를 통째로 재생성하면 XMind가 기대하는 상태에서 벗어난다.
@@ -153,10 +153,11 @@ manifest에는 **없다**(5개 파일 전부). 즉 manifest ≠ ZIP 엔트리 �
 | 필드 | 형태 | 관찰 |
 |---|---|---|
 | `children.detached[]` | Topic[] + `position` | **플로팅 토픽.** 3개 관찰 |
-| `image` | `{src:"xap:resources/<sha256>.svg", width, height, align}` | `xap:` = ZIP 내부 참조 |
+| `image` | `{src: "xap:resources/<sha256>.<ext>"}` + **선택** `width`/`height`/`align` | §2.7 참조 |
 | `position` | `{x: float, y: float}` | 36회 |
 | `customWidth` | int | 31회 |
 | `attributedTitle` | `[{text: "..."}, …]` | 9회. **§2.6에서 별도 경고** |
+| `titleUnedited` | `true` | 자리표시자 제목 플래그. **§2.6 참조** |
 | `class` | `"topic"` \| **`"importantTopic"`** | 토픽 역할 구분 |
 | `extensions[]` | `{provider, content}` | 루트에서 좌우 분배(`right-number`) 지정 |
 
@@ -177,7 +178,7 @@ manifest에는 **없다**(5개 파일 전부). 즉 manifest ≠ ZIP 엔트리 �
 
 | 필드 | 값 | 의미 |
 |---|---|---|
-| `revisionId` | UUID | 5개 전부 존재. 버전 추적 |
+| `revisionId` | UUID | 6개 중 5개. 버전 추적 |
 | `topicPositioning` | `"fixed"` | 자유 배치 모드 |
 | `topicOverlapping` | `"overlap"` | 겹침 허용 |
 | `theme` | 15개 하위 키 | `map, centralTopic, mainTopic, subTopic, minorTopic, importantTopic, expiredTopic, floatingTopic, calloutTopic, summaryTopic, summary, boundary, relationship, colorThemeId, skeletonThemeId` |
@@ -259,6 +260,26 @@ JSON 파싱 후 배열로 정규화하면 재직렬화 시 형태가 바뀌므�
    (서식은 잃되 데이터 불일치는 없다. 서식 보존은 리치텍스트 편집기를 붙이는 Phase 3에서.)
    이 규칙은 주석이 아니라 **테스트로 강제**한다.
 
+#### `titleUnedited` — 함께 처리해야 할 세 번째 필드 `[실측]`
+
+```json
+{ "title": "주요 주제 3", "titleUnedited": true }
+```
+
+새 노드를 만들면 XMind가 자리표시자 제목을 넣고 이 플래그를 세운다.
+사용자가 실제로 타이핑하면 사라진다.
+
+→ **텍스트 편집 Command가 건드려야 할 필드는 3개다: `title`, `attributedTitle`, `titleUnedited`.**
+   플래그를 남기면 XMind가 그 노드를 여전히 "미입력"으로 취급한다.
+
+### 2.7 `image` — `src` 외 전부 선택 필드 `[실측]`
+
+코퍼스 이미지 5건의 키 조합: `src`만(3), `src`+`align`(1), `src`+`width`+`height`+`align`(1).
+
+→ **`width`/`height`를 필수로 가정하면 5건 중 3건이 깨진다.**
+   크기 미지정 = 원본 크기이므로 렌더링 시 리소스를 읽어 실제 치수를 구한다.
+   저장 시 **원래 없던 키를 채워 넣지 않는다** — 바이트 동등이 깨진다.
+
 ---
 
 ## 3. Legacy 포맷 (`content.xml` 세대)
@@ -288,7 +309,7 @@ XMind 8 이하 사용자는 이미 소수이며, 양방향 지원은 비용 대�
 
 ## 4. 기존 OSS 구현의 손실 지점
 
-> 📊 아래 표는 코퍼스 실측으로 검증됐다. naive 파서 방식을 5개 파일에 돌린 결과
+> 📊 아래 표는 코퍼스 실측으로 검증됐다. naive 파서 방식을 6개 파일에 돌린 결과
 > **131개 데이터 포인트가 유실**됐다 — 플로팅 토픽 3, 관계선 18, style 33,
 > position 36, customWidth 31, attributedTitle 9, 이미지 1.
 > 이미지 1개는 코퍼스의 유일한 리소스다. 즉 **왕복 한 번에 그림이 사라진다.**
@@ -353,12 +374,12 @@ assert  normalizeJSON(원본.content.json) == normalizeJSON(결과.content.json)
 assert  원본 ZIP 엔트리 집합 == 결과 ZIP 엔트리 집합
 ```
 
-**결과: 코퍼스 5/5 통과.** 구현은 `tools/roundtrip.py`.
+**결과: 코퍼스 6/6 통과.** 구현은 `tools/roundtrip.py`.
 
 ### 🎯 목표를 "바이트 동등"으로 상향할 수 있다 `[실측]`
 
 기대 이상의 결과가 나왔다. XMind의 직렬화 방식을 정확히 재현하면
-`content.json`이 **바이트 단위로 동일**해진다 (5/5, 14449 → 14449 bytes 등):
+`content.json`이 **바이트 단위로 동일**해진다 (6/6, 14449 → 14449 bytes 등):
 
 ```python
 json.dumps(ast, ensure_ascii=False, separators=(",", ":"))   # Python
@@ -378,9 +399,9 @@ JSON.stringify(ast)                                          # JS (기본 동작
 
 ## 6. Phase 0 검증 체크리스트
 
-- [x] 실제 XMind 앱으로 만든 샘플 파일 확보 (5개 / 252 토픽)
+- [x] 실제 XMind 앱으로 만든 샘플 파일 확보 (6개 / 270 토픽)
 - [x] `content.json` 전체 키를 재귀 수집해 **실측 스키마** 산출 → `tools/schema_extract.py`
-- [x] `[추정]` 필드 승격 — detached, image, position, customWidth, attributedTitle, relationships 확정
+- [x] `[추정]` 필드 승격 — detached, image, position, customWidth, attributedTitle, titleUnedited, relationships 확정
 - [x] 무편집 왕복 diff = 0 달성 (**바이트 동등까지 달성**)
 - [x] 테마 객체 최상위 구조 파악 (15개 키. 보존만 하고 편집은 Phase 3)
 - [ ] 마커 ID 목록 추출 — **샘플 부족.** 마커 사용 파일 필요
