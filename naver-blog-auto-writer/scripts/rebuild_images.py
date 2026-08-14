@@ -375,6 +375,45 @@ def apply_finish(im, finish):
     return im
 
 
+def trim_flat_border(im):
+    """가장자리에 완전히 균일한 색으로 채워진 띠가 있으면 잘라낸다.
+    원본 사진의 여백이나 렌더 배경이 '박스'처럼 보이는 것을 막는다."""
+    rgb = im.convert("RGB")
+    w, h = rgb.size
+    px = rgb.load()
+    tol = 3
+    stepx, stepy = max(1, w // 60), max(1, h // 60)
+
+    def row_flat(y):
+        c0 = px[0, y]
+        return all(abs(px[x, y][k] - c0[k]) <= tol
+                   for x in range(0, w, stepx) for k in range(3))
+
+    def col_flat(x):
+        c0 = px[x, 0]
+        return all(abs(px[x, y][k] - c0[k]) <= tol
+                   for y in range(0, h, stepy) for k in range(3))
+
+    top = 0
+    while top < h // 3 and row_flat(top):
+        top += 1
+    bot = h
+    while bot > h * 2 // 3 and row_flat(bot - 1):
+        bot -= 1
+    left = 0
+    while left < w // 3 and col_flat(left):
+        left += 1
+    right = w
+    while right > w * 2 // 3 and col_flat(right - 1):
+        right -= 1
+
+    if right - left < w * 0.5 or bot - top < h * 0.5:
+        return rgb  # 너무 많이 잘리면 판정을 믿지 않는다
+    if (left, top, right, bot) == (0, 0, w, h):
+        return rgb
+    return rgb.crop((left, top, right, bot))
+
+
 def extract_photo(im, want_flag=False):
     """카드뉴스처럼 디자인 안에 사진이 박혀 있으면 그 사진만 잘라낸다.
 
@@ -456,14 +495,17 @@ def convert_pillow(src, dst, style=None):
         im = im.convert("RGB")
     # 카드뉴스라면 안에 박힌 사진만 꺼낸다 (글자·디자인 제거)
     im, extracted = extract_photo(im, want_flag=True)
+    # 원본에 남아 있는 균일한 여백 띠도 잘라낸다
+    im = trim_flat_border(im)
 
     if style is None:
         w, h = im.size
         im = im.resize((styles.BASE_WIDTH, max(1, round(h * styles.BASE_WIDTH / w))),
                        Image.LANCZOS)
     else:
-        # 추출한 사진은 피사체에 이미 딱 맞아, 여백을 두기보다 잘라내는 편이 낫다
-        im = fit_to(im, styles.size_for(style), allow_crop=0.55 if extracted else None)
+        # 추출한 사진은 카드 껍데기를 벗겨낸 것이라 여백을 두면 다시 '박스'처럼 보인다.
+        # 얼마가 잘리든 꽉 채운다.
+        im = fit_to(im, styles.size_for(style), allow_crop=1.0 if extracted else None)
         im = ImageEnhance.Contrast(im).enhance(style["contrast"])
         im = ImageEnhance.Color(im).enhance(style["color"])
         im = ImageEnhance.Brightness(im).enhance(style["brightness"])
