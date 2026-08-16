@@ -54,4 +54,25 @@ function markDone(file) {
   return progress.posted.length;
 }
 
-module.exports = { getNext, markDone, loadConfig };
+function resetProgress() {
+  const before = (readJson(PROGRESS_PATH, { posted: [] }).posted || []).length;
+  try { fs.unlinkSync(PROGRESS_PATH); } catch { /* 없으면 그만 */ }
+  return before;
+}
+
+// 큐 현황: 어떤 글이 올라갔고 어떤 글이 남았는지.
+function status() {
+  const config = loadConfig();
+  if (!config.sourceDir || !fs.existsSync(config.sourceDir)) {
+    return { error: 'no_source', hint: 'config.json의 sourceDir를 확인하세요' };
+  }
+  const files = listArticles(config.sourceDir);
+  const posted = new Set((readJson(PROGRESS_PATH, { posted: [] }).posted) || []);
+  return {
+    total: files.length,
+    items: files.map((n) => ({ file: n, done: posted.has(n) })),
+    remaining: files.filter((n) => !posted.has(n)).length,
+  };
+}
+
+module.exports = { getNext, markDone, loadConfig, resetProgress, status };

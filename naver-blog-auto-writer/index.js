@@ -28,6 +28,31 @@ const recordOn = () => !flag('no-record');
     return;
   }
 
+  // 진행 기록 초기화 — 1편부터 다시 올린다. 원고·이미지는 건드리지 않는다.
+  if (cmd === 'reset') {
+    const n = queue.resetProgress();
+    console.log(n
+      ? `진행 기록을 지웠습니다 (게시 표시돼 있던 ${n}편 해제).`
+      : '지울 진행 기록이 없습니다. 이미 처음 상태입니다.');
+    console.log('이제 node index.js next 를 실행하면 1편부터 다시 올라갑니다.');
+    console.log('※ 네이버에 이미 임시저장된 글은 지워지지 않습니다. 필요하면 직접 삭제하세요.');
+    process.exit(0);
+  }
+
+  // 큐 현황
+  if (cmd === 'status') {
+    const st = queue.status();
+    if (st.error) {
+      console.error(`설정 오류: ${st.hint || st.error}`);
+      process.exit(1);
+    }
+    console.log(`총 ${st.total}편 / 남은 ${st.remaining}편\n`);
+    st.items.forEach((it, i) => {
+      console.log(`  ${String(i + 1).padStart(2)}. ${it.done ? '✅ 게시' : '· 대기'}  ${it.file}`);
+    });
+    process.exit(0);
+  }
+
   if (cmd === 'cookies') {
     // 값은 화면에 표시되지 않게 입력받는다. (환경변수로 줘도 되지만 비권장 — 노출 위험)
     let NID_AUT = process.env.NID_AUT;
@@ -157,6 +182,6 @@ const recordOn = () => !flag('no-record');
     process.exit(1);
   }
 
-  console.error('알 수 없는 명령입니다. topic / login / next(다음) / cookies / post 중 하나를 사용하세요.');
+  console.error('알 수 없는 명령입니다. status / reset / topic / login / next(다음) / cookies / post 중 하나를 사용하세요.');
   process.exit(1);
 })();
