@@ -10,7 +10,7 @@
     color      채도 배율 (0.0 = 흑백)
     brightness 밝기 배율
     tint       채널별 배율 (R, G, B). 색조를 살짝 미는 용도
-    finish     None | "border" (흰 여백 테두리) | "round" (둥근 모서리)
+    finish     항상 None. 테두리·둥근 모서리는 카드뉴스처럼 보여서 쓰지 않는다.
 """
 
 BASE_WIDTH = 810
@@ -26,21 +26,21 @@ STYLES = [
     dict(name="로우키 3:2",      ratio=(3, 2),  contrast=1.18, color=0.90, brightness=0.88, tint=(1.00, 0.99, 1.02), finish=None),
     dict(name="빈티지 페이드 4:3", ratio=(4, 3), contrast=0.86, color=0.82, brightness=1.08, tint=(1.06, 1.01, 0.96), finish=None),
     dict(name="선명 16:9",       ratio=(16, 9), contrast=1.10, color=1.22, brightness=1.00, tint=(1.00, 1.00, 1.00), finish=None),
-    dict(name="흰 테두리 4:3",   ratio=(4, 3),  contrast=1.05, color=1.00, brightness=1.02, tint=(1.00, 1.00, 1.00), finish="border"),
-    dict(name="둥근 모서리 4:3", ratio=(4, 3),  contrast=1.05, color=1.02, brightness=1.01, tint=(1.00, 1.00, 1.00), finish="round"),
+    dict(name="맑은 4:3",        ratio=(4, 3),  contrast=1.05, color=1.00, brightness=1.02, tint=(1.00, 1.00, 1.00), finish=None),
+    dict(name="차분한 3:2",      ratio=(3, 2),  contrast=1.05, color=1.02, brightness=1.01, tint=(1.00, 1.00, 1.00), finish=None),
     dict(name="부드러운 흑백 3:2", ratio=(3, 2), contrast=1.02, color=0.00, brightness=1.06, tint=(1.00, 1.00, 1.00), finish=None),
     dict(name="앰버 4:3",        ratio=(4, 3),  contrast=1.05, color=1.05, brightness=1.02, tint=(1.08, 1.00, 0.90), finish=None),
     dict(name="틸 16:9",         ratio=(16, 9), contrast=1.06, color=1.00, brightness=1.00, tint=(0.94, 1.02, 1.07), finish=None),
     dict(name="정방 자연 1:1",   ratio=(1, 1),  contrast=1.03, color=1.00, brightness=1.02, tint=(1.00, 1.00, 1.00), finish=None),
     dict(name="시네마 21:9",     ratio=(21, 9), contrast=1.12, color=0.94, brightness=0.98, tint=(1.00, 1.00, 1.01), finish=None),
-    dict(name="종이 질감 4:3",   ratio=(4, 3),  contrast=0.90, color=0.78, brightness=1.09, tint=(1.05, 1.02, 0.95), finish="border"),
-    dict(name="흑백 정방 1:1",   ratio=(1, 1),  contrast=1.14, color=0.00, brightness=1.00, tint=(1.00, 1.00, 1.00), finish="round"),
+    dict(name="바랜 색감 4:3",   ratio=(4, 3),  contrast=0.90, color=0.78, brightness=1.09, tint=(1.05, 1.02, 0.95), finish=None),
+    dict(name="흑백 정방 1:1",   ratio=(1, 1),  contrast=1.14, color=0.00, brightness=1.00, tint=(1.00, 1.00, 1.00), finish=None),
     dict(name="파스텔 4:3",      ratio=(4, 3),  contrast=0.94, color=0.80, brightness=1.08, tint=(1.03, 1.02, 1.03), finish=None),
 ]
 
-# 마감 처리 수치
-BORDER_PX = 22          # 흰 여백 테두리 두께
-ROUND_RADIUS = 28       # 둥근 모서리 반지름
+# 마감 처리 수치 (현재 어떤 프리셋도 쓰지 않는다 — 테두리 금지)
+BORDER_PX = 22
+ROUND_RADIUS = 28
 # 4:3 등으로 자를 때 이만큼 넘게 잘려나가면 자르지 않고 여백을 채운다.
 # (카드뉴스처럼 글자가 든 세로 이미지의 제목·푸터를 보호하기 위한 기준)
 MAX_CROP_LOSS = 0.25

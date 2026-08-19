@@ -44,6 +44,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ARTICLES = ROOT / "articles"
 IMAGES = ROOT / "images"
 LOCAL_SRC = ROOT / "images_src"          # 사용자가 직접 넣어두는 추가 사진
+# 손대지 않은 원본 보관소. --from-existing 은 여기서만 읽는다.
+# 생성된 images/ 를 다시 원본으로 쓰면 크롭·보정이 누적돼 화면이 점점 확대된다.
+MASTER = ROOT / "images_master"
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
 # [[img:파일명]] 또는 [[img:파일명|사진 설명]]
 MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]", re.I)
@@ -589,8 +592,13 @@ def main():
     if args.from_existing:
         # 드라이브를 쓸 수 없을 때의 임시 방편.
         # 원본 사진 수가 모자라므로 같은 사진이 편마다 다른 스타일로 반복된다.
-        pool_e = sorted(IMAGES.glob("edukart*.png")) or sorted(IMAGES.glob("*.png"))
-        pool_k = sorted(IMAGES.glob("kalli*.png")) or sorted(IMAGES.glob("*.png"))
+        # 원본 보관소가 있으면 거기서 읽는다 (재생성 시 열화 방지)
+        src_dir = MASTER if MASTER.exists() and any(MASTER.glob("*.png")) else IMAGES
+        if src_dir is IMAGES:
+            print("    ⚠️  images_master/ 가 없어 생성본을 원본으로 씁니다. "
+                  "반복 실행하면 사진이 점점 확대됩니다.")
+        pool_e = sorted(src_dir.glob("edukart*.png")) or sorted(src_dir.glob("*.png"))
+        pool_k = sorted(src_dir.glob("kalli*.png")) or sorted(src_dir.glob("*.png"))
         # 글자만 있는 CTA 카드는 본문 사진으로 쓸 수 없다
         before = len(pool_e) + len(pool_k)
         pool_e = [q for q in pool_e if has_usable_photo(q)] or pool_e
