@@ -59,6 +59,21 @@
 스크린샷 한 장으로는 어느 단계에서 꼬였는지 알 수 없다.
 `out/frames/<영상이름>/` 에 개별 프레임과 컨택트시트가 생긴다.
 
+## 단축 명령 (kart)
+
+사용자가 경로 때문에 반복해서 막힌다. `bash scripts/install-shortcut.sh` 를 한 번 실행하면
+어느 폴더에서든 `kart` 로 전부 실행된다. 이미 설치돼 있으면 갱신만 한다.
+
+```
+kart next / status / reset / login / topic     # node index.js ...
+kart images [--dry-run|--no-sweep|--src 경로]  # 사진 다시 모으기
+kart check / ffmpeg / frames                   # 환경 점검·녹화
+kart pull                                      # 최신 받기
+kart where / cd                                # 경로 확인·이동
+```
+
+사용자가 `command not found: kart` 를 겪으면 `source ~/.zshrc` 를 안내한다.
+
 ## 큐 관리
 
 - `node index.js status` — 어떤 글이 올라갔고 몇 편 남았는지 본다.
