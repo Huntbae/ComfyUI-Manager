@@ -2,7 +2,7 @@
 
 이 시리즈를 쓰면서 계속 든 생각입니다. 한국에서도 이게 될까요.
 
-[[img:hist_cyclecar_06.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:edukart_44.png|부품은 구해진다. 문제는 그다음이다]]
 
 먼저 확실히 해둘 것. 사이클카트는 도로용이 아닙니다. 이건 규격 자체가 그렇습니다. 번호판을 달고 다니는 물건이 아니라, 사유지·서킷·행사장에서 굴리는 물건이에요. 영국 CKGB도 미국 클럽도 전부 이 전제 위에서 굴러갑니다. (출처: cyclekartsgb.com, cyclekartclub.com)
 

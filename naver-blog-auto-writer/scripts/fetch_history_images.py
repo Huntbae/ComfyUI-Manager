@@ -35,12 +35,12 @@ UA = "ClanHunts-BlogAutoWriter/1.0 (https://blog.naver.com/huntbae; huntbae@hunt
 
 # 원고가 쓰는 슬롯 -> 어느 카테고리에서 뽑을지
 SLOTS = [
-    ("hist_cyclecar", 6, [
+    ("hist_cyclecar", 5, [
         "Category:Cyclecars",
         "Category:Bédélia vehicles",
         "Category:GN (car)",
     ]),
-    ("hist_cyclekart", 4, [
+    ("hist_cyclekart", 2, [
         "Category:Cyclekart",
         "Category:Cyclecars",   # 사이클카트 카테고리가 4장뿐이라 모자라면 여기서 보충
     ]),
@@ -158,11 +158,27 @@ def short(s, n):
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
+def clean_title(title):
+    """'File:1-10-1923, cyclecar à Berlin - btv1b53119087b.jpg' -> '1-10-1923, cyclecar à Berlin'"""
+    t = re.sub(r"^File:", "", title or "")
+    t = re.sub(r"\.[A-Za-z0-9]{2,4}$", "", t)
+    t = t.replace("_", " ")
+    t = re.sub(r"\s*-\s*btv[0-9a-z]+$", "", t)          # 프랑스 국립도서관 정리번호
+    t = re.sub(r"\s*\([0-9a-f]{6,}\)$", "", t)          # 플리커 등의 숫자 꼬리표
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def caption_for(item):
-    """캡션 = 사진 설명 + 출처. 이게 본문에 그대로 들어간다."""
-    desc = short(item["description"], 55) or "역사 사진"
-    who = short(item["artist"], 40)
-    lic = short(item["license"], 20) or "Wikimedia Commons"
+    """캡션 = 사진 설명 + 출처. 이게 본문에 그대로 들어간다.
+
+    설명은 파일명을 쓴다. Commons의 ImageDescription은 도서관 목록 메타데이터
+    ("Sujet : Cyclecars -- France Courses automobiles -- ...") 인 경우가 많아
+    블로그 본문에 그대로 넣기에 나쁘다.
+    """
+    desc = clean_title(item.get("title")) or short(item.get("description"), 55) or "역사 사진"
+    desc = short(desc, 70)
+    who = short(item.get("artist"), 55)
+    lic = short(item.get("license"), 20) or "Wikimedia Commons"
     return f"{desc} / 사진: {who}, {lic} (Wikimedia Commons)"
 
 
@@ -190,7 +206,7 @@ def apply_captions(manifest):
             info = manifest.get(fn)
             if not info:
                 return m.group(0)
-            return f"[[img:{fn}|{info['caption']}]]"
+            return f"[[img:{fn}|{caption_for(info)}]]"
 
         s = re.sub(r"\[\[\s*img\s*:\s*(hist_[^|\]]+?)\s*(?:\|[^\]]*)?\]\]", repl, s)
         if s != orig:
@@ -232,7 +248,7 @@ def main():
             fname = f"{prefix}_{i:02d}.jpg"
             dest = os.path.join(IMAGES, fname)
             if fname in manifest and os.path.exists(dest):
-                print(f"  · {fname} 이미 있음 — 건너뜀")
+                print(f"  · {fname} 이미 있음 — 내려받기 생략 (캡션은 다시 계산)")
                 used_titles.add(manifest[fname].get("title"))
                 continue
             pick = next((x for x in dedup if x["title"] not in used_titles), None)

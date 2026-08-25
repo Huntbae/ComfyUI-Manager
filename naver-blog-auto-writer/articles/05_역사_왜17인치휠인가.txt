@@ -4,7 +4,7 @@
 
 혼다 오토바이용 17×1.75 또는 17×2인치 림에 17×2.50 타이어. 자동차 휠도 아니고 고카트 휠도 아닌, 딱 오토바이 사이즈입니다. (출처: en.wikipedia.org/wiki/Cyclekart)
 
-[[img:hist_cyclekart_03.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:hist_cyclekart_02.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
 
 이유를 하나씩 따져보면 꽤 영리합니다.
 

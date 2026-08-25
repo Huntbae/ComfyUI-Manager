@@ -4,7 +4,7 @@
 
 표 한 장 때문입니다.
 
-[[img:hist_cyclekart_02.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:kalli_17.png|규격이 없으면 각자 다르게 만들 자유도 생기지 않는다]]
 
 2002년 4월, Road & Track 만우절 호에 「Stevenson Type 59 Cyclekart」의 "At a Glance" 스펙 시트가 실렸습니다. 휠베이스, 트랙, 엔진 형식, 구동 방식이 적힌 그 흔한 제원표예요.
 
