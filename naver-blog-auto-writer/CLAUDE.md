@@ -36,6 +36,9 @@
   개발자도구로 실제 클래스명을 확인 → `SEL`/셀렉터 갱신 → 재실행.
 - 복구 팝업/도움말 패널이 클릭을 가로채면 `dismissRecoveryPopup`/`closeHelpPanel`의
   셀렉터를 실제 팝업 DOM에 맞게 보강.
+- `❌ 사진 출처가 아직 채워지지 않았습니다` → `python3 scripts/fetch_history_images.py` 를 먼저 실행한다.
+  역사 사진(`hist_*`)은 위키미디어 공용에서 받고, 저작자·라이선스를 캡션에 자동으로 박아 넣는다.
+  출처가 안 채워진 채로는 절대 올리지 않는다 (남의 사진 무단 게시 방지).
 - 사진이 모자라면 `python3 scripts/rebuild_images.py` 로 다시 모은다. 내 드라이브·공유 드라이브·
   공유 문서함·로컬 Work Files를 모두 훑고, 모자라면 단계적으로 범위를 넓힌다 (`SERIES.md` 참고).
 - 이미지가 안 들어가면 `images/` 파일 존재와 `config.json`의 `imagedir`를 확인.
@@ -67,10 +70,25 @@
 ```
 kart next / status / reset / login / topic     # node index.js ...
 kart images [--dry-run|--no-sweep|--src 경로]  # 사진 다시 모으기
+kart history                                   # 역사 사진 내려받기(출처 자동 표기)
+kart daily [시] [분] / off / status / run      # 매일 한 편 자동 임시저장
 kart check / ffmpeg / frames                   # 환경 점검·녹화
 kart pull                                      # 최신 받기
 kart where / cd                                # 경로 확인·이동
 ```
+
+## 매일 자동 실행
+
+`kart daily` (또는 `bash scripts/install-daily.sh`) 로 macOS launchd에 등록한다. 기본 매일 09:00.
+등록되면 `scripts/daily.sh` 가 매일 이 순서로 돈다:
+
+1. `git pull` 로 원고 최신화 (로컬 수정본이 있으면 건너뜀)
+2. 오늘 글에 `hist_*` 사진이 필요하고 출처가 비어 있으면 `fetch_history_images.py` 실행
+3. `node index.js next` — 한 편 임시저장
+4. 30일 지난 로그·녹화 정리
+
+로그는 `out/logs/daily-<날짜>.log`. 실패하면 진행 기록을 남기지 않아 다음 날 그 글이 다시 대상이 된다.
+사용자가 "자동화 확인해줘" 라고 하면 `kart daily status` 로 등록 상태와 최근 로그를 보여준다.
 
 사용자가 `command not found: kart` 를 겪으면 `source ~/.zshrc` 를 안내한다.
 
@@ -84,12 +102,19 @@ kart where / cd                                # 경로 확인·이동
 ## 규칙
 
 - **하루 한 편, 임시저장까지만.** 발행 버튼은 절대 누르지 않는다 (사람이 검토 후 발행).
+- **남의 사진은 출처 없이 쓰지 않는다.** 역사 사진은 위키미디어 공용에서 재사용 가능
+  라이선스(퍼블릭도메인·CC0·CC BY·CC BY-SA)만 받고, 저작자·라이선스를 캡션에 표기한다.
+  라이선스는 추측하지 말고 Commons API가 돌려준 값을 그대로 쓴다.
+- **사이클카(cyclecar)와 사이클카트(cyclekart)를 혼동하지 않는다.**
+  사이클카 = 1910~1920년대 초 유럽·북미의 초경량 실용차(베델리아·G.N.).
+  사이클카트 = 1995년 미국 캘리포니아에서 스티븐슨 형제가 시작한 취미용 절반 크기 재현차.
+  예전 원고에 있던 "20세기 초 영국의 사이클카트"는 틀린 서술이라 전부 고쳤다.
 - **녹화는 기본 켜짐.** 끄려면 `--no-record`. 결과 경로는 실행 끝에 출력된다.
 - 게시 실패 시 진행 기록(mark)을 남기지 않아 다음에 자동 재시도된다.
-- 현재 원고는 50편(`articles/`, 구성은 `SERIES.md` 참고).
-  1~30편 '전기차 만들기'(만드는 사람), 31~40편 '체험·나들이'(부모),
-  41~50편 '전기차'(일반 독자). 편마다 형식이 다르다.
-- v1 36편은 `articles_v1/`, v2 20편은 `articles_v2/`에 보관되어 있고 큐에서 빠져 있다.
+- 현재 원고는 15편(`articles/`) — **사이클카트 유래·역사·현황 시리즈**. 구성은 `SERIES.md` 참고.
+  해외 자료를 근거로 쓴 글이라 **각 편 끝에 출처 목록이 붙어 있다. 지우지 말 것.**
+- v1 36편은 `articles_v1/`, v2 20편은 `articles_v2/`, v3 50편은 `articles_v3/`에 보관되어 있고 큐에서 빠져 있다.
+  v3를 다시 올리려면 `mv articles_v3/*.txt articles/` 하면 된다 (한 편도 게시된 적 없음).
 - 새 글감이 필요하면(50편 소진) 사용자에게 알리고, Google Drive의
   `클랜헌트/_콘텐츠자동화/product_brief.json`·`콘텐츠캘린더_4주.md`를 근거로 새 글을
   `articles/`에 추가 생성한다. **사실·수치는 product_brief 범위 내에서만.**

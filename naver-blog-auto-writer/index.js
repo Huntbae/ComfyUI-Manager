@@ -6,10 +6,11 @@
 //
 // 발행은 하지 않는다 — 임시저장까지만. 발행은 사람이 검토 후 직접 누른다.
 const fs = require('fs');
-const { saveCookies, COOKIE_PATH, launchPersistent } = require('./src/browser');
-const { writePost, writePostProfile } = require('./src/post');
-const { ask } = require('./src/prompt');
 const queue = require('./src/queue');
+// playwright-core는 실제로 브라우저를 띄울 때만 필요하다.
+// status/reset 같은 명령이 의존성 없이도 돌게 늦게 불러온다.
+const browser = () => require('./src/browser');
+const post = () => require('./src/post');
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -60,6 +61,7 @@ const recordOn = () => !flag('no-record');
     if (!NID_AUT || !NID_SES) {
       console.log('크롬 로그인 → F12 → Application → Cookies → naver.com → 필터 NID 에서 값을 복사하세요.');
       console.log('아래에 붙여넣고 Enter를 누르면 됩니다. (입력값은 화면에 표시되지 않습니다)\n');
+      const { ask } = require('./src/prompt');
       NID_AUT = await ask('NID_AUT 붙여넣기 후 Enter: ', { hidden: true });
       NID_SES = await ask('NID_SES 붙여넣기 후 Enter: ', { hidden: true });
     }
@@ -71,7 +73,7 @@ const recordOn = () => !flag('no-record');
       console.error(`값이 너무 짧습니다 (AUT ${NID_AUT.length}자, SES ${NID_SES.length}자). 예시 문구가 아니라 실제 쿠키 값인지 확인하세요.`);
       process.exit(1);
     }
-    const p = saveCookies({ NID_AUT, NID_SES });
+    const p = browser().saveCookies({ NID_AUT, NID_SES });
     console.log(`\n쿠키 저장 완료: ${p}`);
     console.log(`저장된 길이: NID_AUT ${NID_AUT.length}자 / NID_SES ${NID_SES.length}자`);
     console.log('이 파일은 아이디+비번급 민감정보입니다. 공개 금지.');
@@ -97,6 +99,7 @@ const recordOn = () => !flag('no-record');
     }
     // 기본은 프로필 방식(node index.js login으로 저장한 로그인 재사용).
     // --cookies 를 주면 예전 NID 쿠키 방식으로 동작한다.
+    const { writePost, writePostProfile } = post();
     const run = flag('cookies') ? writePost : writePostProfile;
     const r = await run({
       blogId,
@@ -115,7 +118,7 @@ const recordOn = () => !flag('no-record');
   if (cmd === 'login') {
     console.log('전용 크롬 프로필을 엽니다. 창에서 네이버에 로그인하세요. (한 번만)');
     console.log('로그인이 끝나면 이 창은 자동으로 닫힙니다...');
-    const { context } = await launchPersistent({ headful: true });
+    const { context } = await browser().launchPersistent({ headful: true });
     const page = context.pages()[0] || (await context.newPage());
     await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'domcontentloaded' });
     try {
@@ -153,12 +156,24 @@ const recordOn = () => !flag('no-record');
       if (missing.length) {
         console.error(`❌ 이미지 ${missing.length}장이 없습니다: ${missing.join(', ')}`);
         console.error('   그대로 올리면 사진 없이 글만 올라갑니다. 먼저 이미지를 만드세요:');
+        if (missing.some((n) => n.startsWith('hist_'))) {
+          console.error('     python3 scripts/fetch_history_images.py        # 역사 사진(위키미디어 공용, 출처 자동 표기)');
+        }
         console.error('     python3 scripts/rebuild_images.py              # 구글 드라이브에서 수집');
         console.error('     python3 scripts/rebuild_images.py --from-existing   # 드라이브 없이 기존 사진으로');
         process.exit(1);
       }
+
+      // 남의 사진을 출처 없이 올리는 사고 방지.
+      // fetch_history_images.py 가 캡션을 실제 저작자·라이선스로 바꿔주기 전에는 못 올린다.
+      if (/\(출처 확인 전/.test(nx.body)) {
+        console.error('❌ 사진 출처가 아직 채워지지 않았습니다.');
+        console.error('   남의 사진을 출처 없이 올릴 수는 없습니다. 먼저 실행하세요:');
+        console.error('     python3 scripts/fetch_history_images.py');
+        process.exit(1);
+      }
     }
-    const r = await writePostProfile({
+    const r = await post().writePostProfile({
       blogId: nx.config.blogId,
       title: nx.title,
       content: nx.body,

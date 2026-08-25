@@ -10,7 +10,10 @@
     "check": "node scripts/check-env.js",
     "link-ffmpeg": "node scripts/link-ffmpeg.js",
     "frames": "node scripts/inspect-video.js",
-    "topic": "node scripts/pick-topic.js"
+    "topic": "node scripts/pick-topic.js",
+    "history": "python3 scripts/fetch_history_images.py",
+    "daily": "bash scripts/install-daily.sh",
+    "daily-run": "bash scripts/daily.sh"
   },
   "license": "ISC",
   "dependencies": {

@@ -39,6 +39,11 @@ kart() {
       echo "  kart login           네이버 로그인 (프로필에 1회)"
       echo "  kart topic           유튜브에서 글감 선정"
       echo "  kart images [옵션]   사진 다시 모으기 (--dry-run, --no-sweep, --from-existing, --src 경로)"
+      echo "  kart history         역사 사진 내려받기 (위키미디어 공용, 출처 자동 표기)"
+      echo "  kart daily [시] [분] 매일 한 편 자동 임시저장 켜기 (기본 09:00)"
+      echo "  kart daily off       매일 자동 실행 끄기"
+      echo "  kart daily status    자동 실행 상태 + 최근 로그"
+      echo "  kart daily run       지금 한 번 실행"
       echo "  kart check           환경 점검"
       echo "  kart ffmpeg          녹화용 ffmpeg 연결"
       echo "  kart frames          최근 녹화를 프레임으로 자르기"
@@ -47,6 +52,8 @@ kart() {
       echo "  kart where           프로젝트 경로 출력"
       ;;
     images)  ( cd "\$d" && python3 scripts/rebuild_images.py "\$@" ) ;;
+    history) ( cd "\$d" && python3 scripts/fetch_history_images.py "\$@" ) ;;
+    daily)   ( cd "\$d" && bash scripts/install-daily.sh "\$@" ) ;;
     check)   ( cd "\$d" && npm run --silent check ) ;;
     ffmpeg)  ( cd "\$d" && npm run --silent link-ffmpeg ) ;;
     frames)  ( cd "\$d" && npm run --silent frames -- "\$@" ) ;;
