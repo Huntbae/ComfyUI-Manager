@@ -60,7 +60,14 @@ kart() {
     pull)    ( cd "\$d" && git pull origin claude/naver-blog-auto-writer-tgbpz6 ) ;;
     where)   echo "\$d" ;;
     cd)      cd "\$d" ;;
-    *)       ( cd "\$d" && node index.js "\$cmd" "\$@" ) ;;
+    next|다음|status|reset|login|topic|cookies|post)
+             ( cd "\$d" && node index.js "\$cmd" "\$@" ) ;;
+    *)       # 모르는 명령을 node로 넘기면 node가 자기 명령만 나열해서
+             # 정작 kart 쪽 명령(pull/history/daily/images)이 안 보인다.
+             echo "kart: 모르는 명령입니다 — '\$cmd'" >&2
+             echo >&2
+             kart help >&2
+             return 1 ;;
   esac
 }
 $END
