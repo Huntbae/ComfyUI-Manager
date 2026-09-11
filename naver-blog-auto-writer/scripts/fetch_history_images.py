@@ -35,7 +35,7 @@ UA = "ClanHunts-BlogAutoWriter/1.0 (https://blog.naver.com/huntbae; huntbae@hunt
 
 # 원고가 쓰는 슬롯 -> 어느 카테고리에서 뽑을지
 SLOTS = [
-    ("hist_cyclecar", 5, [
+    ("hist_cyclecar", 7, [
         "Category:Cyclecars",
         "Category:Bédélia vehicles",
         "Category:GN (car)",
@@ -43,6 +43,16 @@ SLOTS = [
     ("hist_cyclekart", 2, [
         "Category:Cyclekart",
         "Category:Cyclecars",   # 사이클카트 카테고리가 4장뿐이라 모자라면 여기서 보충
+    ]),
+    # 사이클카트가 형태를 빌려온 1920~30년대 그랑프리 카
+    ("hist_gpcar", 2, [
+        "Category:Bugatti Type 35 (original)",
+        "Category:Bugatti Type 35",
+    ]),
+    # 사이클카 세대에서 유일하게 살아남은 계열
+    ("hist_morgan", 2, [
+        "Category:Morgan 3-Wheeler (Vintage)",
+        "Category:Morgan 3-Wheeler",
     ]),
 ]
 
