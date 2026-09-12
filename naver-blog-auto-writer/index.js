@@ -124,21 +124,50 @@ const headfulOn = () => !flag('headless');
 
   // 프로필 로그인: 전용 크롬 프로필을 열어 네이버에 한 번만 로그인해 둔다.
   if (cmd === 'login') {
-    console.log('전용 크롬 프로필을 엽니다. 창에서 네이버에 로그인하세요. (한 번만)');
-    console.log('로그인이 끝나면 이 창은 자동으로 닫힙니다...');
-    const { context } = await browser().launchPersistent({ headful: true });
-    const page = context.pages()[0] || (await context.newPage());
-    await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'domcontentloaded' });
+    const cfg = queue.loadConfig();
+    const { resolveEditor, writeUrl, dumpEvidence } = post();
+    console.log('전용 크롬 프로필을 엽니다. 창에서 네이버에 로그인하세요. (이 기기에서 한 번만)');
+    console.log('로그인이 끝나면 글쓰기 화면까지 열어 실제로 되는지 확인한 뒤 창을 닫습니다...');
+    let context;
     try {
-      // 로그인 완료(로그인 페이지를 벗어남)까지 최대 5분 대기
+      ({ context } = await browser().launchPersistent({ headful: headfulOn() }));
+    } catch (e) {
+      console.error(`❌ ${e.message}`);
+      process.exit(1);
+    }
+    const page = context.pages()[0] || (await context.newPage());
+    let code = 1;
+    try {
+      await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'domcontentloaded' });
+      // 로그인 페이지를 벗어날 때까지 최대 5분 대기
       await page.waitForURL((u) => !u.href.includes('nidlogin'), { timeout: 300_000 });
-      console.log('✅ 로그인 확인. 이제 node index.js next 로 자동 게시할 수 있습니다.');
-    } catch {
-      console.log('⏱ 시간이 초과됐습니다. 다시 시도하세요.');
+
+      // 여기서 끝내면 안 된다. 로그인 페이지를 벗어난 것만으로는 로그인됐다는 증거가 아니다
+      // (오류 페이지로 튕겨도 URL은 바뀐다). 실제로 쓸 화면을 열어 확인한다.
+      console.log('글쓰기 화면을 확인하는 중...');
+      await page.goto(writeUrl(cfg.blogId), { waitUntil: 'domcontentloaded' });
+      if (page.url().includes('nidlogin')) {
+        console.error('❌ 아직 로그인되지 않았습니다. 다시 시도하세요.');
+      } else {
+        const { root, where } = await resolveEditor(page);
+        if (root) {
+          console.log(`✅ 로그인 확인 — 글쓰기 화면이 열립니다 (에디터: ${where}).`);
+          console.log('   이제 kart next 로 임시저장할 수 있습니다.');
+          code = 0;
+        } else {
+          const dir = await dumpEvidence(page, null, `login-no-editor-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+          console.error('❌ 로그인은 된 것 같은데 글쓰기 화면이 안 열립니다.');
+          console.error(`   blogId가 "${cfg.blogId}" 가 맞는지 config.json 을 확인하세요.`);
+          console.error(`   증거: ${dir}`);
+        }
+      }
+    } catch (e) {
+      console.error(`⏱ 실패: ${e.message.split('\n')[0]}`);
+      console.error('   5분 안에 로그인을 마쳐야 합니다. 다시 시도하세요.');
     } finally {
       await context.close();
     }
-    process.exit(0);
+    process.exit(code);
   }
 
   // 진단: 글을 쓰지 않고 에디터에 들어가 구조만 덤프한다.

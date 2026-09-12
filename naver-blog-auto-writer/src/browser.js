@@ -71,16 +71,46 @@ async function launch({ headful = false, record = false } = {}) {
 // 이 프로필에 네이버 로그인을 한 번 해두면 이후 로그인 상태가 유지된다.
 const PROFILE_DIR = process.env.NAVER_PROFILE_DIR || path.join(__dirname, '..', '.chrome-profile');
 
+// 크롬이 못 뜨는 경우를 사람이 읽을 수 있는 문장으로 바꾼다.
+// 그대로 두면 playwright 스택 트레이스가 그대로 튀어나와 원인을 알기 어렵다.
+function explainLaunchFailure(e) {
+  const msg = String(e && e.message || e);
+  if (/XServer|DISPLAY/i.test(msg)) {
+    return new Error(
+      '화면이 없는 환경이라 크롬 창을 띄울 수 없습니다. '
+      + '맥에서 직접 실행하거나, 창 없이 돌리려면 --headless 를 붙이세요.',
+    );
+  }
+  if (/executable doesn't exist|ENOENT|Failed to launch/i.test(msg)) {
+    return new Error(
+      '크롬을 찾지 못했거나 실행하지 못했습니다. '
+      + 'bash scripts/setup.sh 로 점검하세요 (4. 크롬/크로미움).',
+    );
+  }
+  if (/ProcessSingleton|SingletonLock|already (in use|running)/i.test(msg)) {
+    return new Error(
+      '이 프로필을 쓰는 크롬이 이미 떠 있습니다. 그 창을 닫고 다시 실행하세요 '
+      + `(프로필: ${PROFILE_DIR}).`,
+    );
+  }
+  return e;
+}
+
 async function launchPersistent({ headful = false, record = false } = {}) {
-  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    executablePath: findChromium(),
-    headless: !headful,
-    locale: 'ko-KR',
-    timezoneId: 'Asia/Seoul',
-    viewport: { width: 1280, height: 900 },
-    args: ['--disable-blink-features=AutomationControlled'],
-    ...(record ? { recordVideo: { dir: OUT_DIR, size: { width: 1280, height: 900 } } } : {}),
-  });
+  let context;
+  try {
+    context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      executablePath: findChromium(),
+      headless: !headful,
+      locale: 'ko-KR',
+      timezoneId: 'Asia/Seoul',
+      viewport: { width: 1280, height: 900 },
+      args: ['--disable-blink-features=AutomationControlled'],
+      ...(record ? { recordVideo: { dir: OUT_DIR, size: { width: 1280, height: 900 } } } : {}),
+    });
+  } catch (e) {
+    throw explainLaunchFailure(e);
+  }
   return { context, profileDir: PROFILE_DIR };
 }
 
