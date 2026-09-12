@@ -9,6 +9,7 @@ const path = require('path');
 const { chromium } = require('playwright-core');
 const { findChromium } = require('../src/chromium-path');
 const { fillEditor } = require('../src/post.js');
+const { markdownToPlain } = require('../src/format.js');
 const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
 
 (async () => {
@@ -24,7 +25,7 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     });
     const r = await fillEditor(page, {
       title: '테스트 제목입니다',
-      content: '첫 문단입니다.\n[[img:kalli_01.png|사진 설명 한 줄]]\n둘째 문단입니다.',
+      content: '**굵은 소제목**\n첫 문단입니다.\n- 목록 항목\n\n| | 가 | 나 |\n|---|---|---|\n| 값 | 1 | 2 |\n\n[[img:kalli_01.png|사진 설명 한 줄]]\n둘째 문단입니다.',
       imagedir: path.join(__dirname, '..', 'images'),
     });
     console.log(`\n── ${label}: ok=${r.ok} reason=${r.reason || '-'}`);
@@ -37,6 +38,10 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
   const c = await run('제목칸 포커스 실패', { breakTitle: true });
   await browser.close();
 
+  // 마크다운이 평문으로 바뀌는지 (네이버는 마크다운을 해석하지 않는다)
+  const md = markdownToPlain('**굵게**\n- 항목\n\n| | 가 | 나 |\n|---|---|---|\n| 값 | 1 | 2 |\n\n[[img:x.png|설명]]');
+  console.log('\n── 마크다운 변환\n' + md);
+
   const checks = [
     ['정상 저장이 성공으로 보고되나', a.ok === true],
     ['사진 1장이 본문에 붙었나', a.imageComponents === 1],
@@ -45,6 +50,11 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     ['저장 먹통을 실패로 잡나 (예전 버그)', b.ok === false],
     ['제목 누락을 실패로 잡나', c.ok === false],
     ['실패 시 증거를 남기나', !!(b.hint || '').includes('증거')],
+    ['굵게 표시가 사라지나', !md.includes('**')],
+    ['표 구분선이 사라지나', !md.includes('|---')],
+    ['표가 문장으로 바뀌나', md.includes('값 — 가: 1 / 나: 2')],
+    ['글머리 기호가 · 로 바뀌나', md.includes('· 항목')],
+    ['이미지 마커는 그대로인가', md.includes('[[img:x.png|설명]]')],
   ];
   console.log('\n════ 판정 ════');
   let pass = true;

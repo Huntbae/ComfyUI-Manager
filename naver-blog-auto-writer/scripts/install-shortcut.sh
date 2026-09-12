@@ -35,6 +35,7 @@ kart() {
       echo "kart 사용법 (어느 폴더에서든 실행 가능)"
       echo "  kart setup           이 기기 1회 설정 (의존성·ffmpeg·단축키·점검)"
       echo "  kart sync            진행 기록만 다른 기기와 맞추기"
+      echo "  kart preview         네이버에 찍힐 모양을 터미널에서 미리보기"
       echo "  kart next            다음 원고 1편 임시저장"
       echo "  kart retry           막힌 지점을 진단하며 단계적으로 재시도"
       echo "  kart doctor          글은 안 쓰고 에디터 구조만 덤프 (셀렉터 점검)"
@@ -69,7 +70,7 @@ kart() {
     pull)    ( cd "\$d" && git pull origin claude/naver-blog-auto-writer-tgbpz6 ) ;;
     where)   echo "\$d" ;;
     cd)      cd "\$d" ;;
-    next|다음|status|reset|login|topic|doctor|cookies|post)
+    next|다음|status|reset|preview|login|topic|doctor|cookies|post)
              ( cd "\$d" && node index.js "\$cmd" "\$@" ) ;;
     *)       # 모르는 명령을 node로 넘기면 node가 자기 명령만 나열해서
              # 정작 kart 쪽 명령(pull/history/daily/images)이 안 보인다.

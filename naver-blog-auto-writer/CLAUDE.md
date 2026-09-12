@@ -72,6 +72,20 @@ cd "$REPO" && git fetch origin claude/naver-blog-auto-writer-tgbpz6 \
 `npm test` 가 가짜 에디터로 이 동작을 검증한다. 네이버에 접속하지 않으므로 언제든 돌릴 수 있다.
 post.js 를 고쳤으면 반드시 `npm test` 를 돌린다.
 
+## 마크다운은 평문으로 바꿔서 넣는다
+
+스마트에디터는 마크다운을 해석하지 않는다. 원고를 그대로 타이핑하면 본문에
+`**굵게**` 와 `|---|---|` 가 문자 그대로 찍힌다. `src/format.js` 의 `markdownToPlain()` 이
+치기 직전에 평문으로 바꾼다.
+
+- `**굵게**` · `*기울임*` · `` `코드` `` → 표시만 제거
+- 표 → `값 — 가: 1 / 나: 2` 형태의 문장
+- `- 항목` → `· 항목`, `#` 제목·`>` 인용 → 표시 제거
+- `[[img:...]]` 마커는 손대지 않는다
+
+**서식을 살리겠다고 툴바를 조작하지 말 것.** 취소선 오클릭 같은 사고가 난다.
+올리기 전에 `kart preview` 로 실제 찍힐 모양을 확인한다.
+
 ## 셀렉터가 안 맞을 때 — kart doctor
 
 네이버가 에디터 DOM을 바꾸면 셀렉터가 깨진다. `kart doctor` 는 글을 쓰지 않고
@@ -123,6 +137,7 @@ post.js 를 고쳤으면 반드시 `npm test` 를 돌린다.
 
 ```
 kart setup                                     # 이 기기 1회 설정 (제일 먼저)
+kart preview                                   # 네이버에 찍힐 모양 미리보기
 kart sync                                      # 진행 기록만 다른 기기와 맞추기
 kart next / status / reset / login / topic     # node index.js ...
 kart retry                                     # 막힌 지점 진단하며 단계적 재시도

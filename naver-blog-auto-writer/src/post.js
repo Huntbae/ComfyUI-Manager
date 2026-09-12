@@ -10,6 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const { launch, OUT_DIR } = require('./browser');
+const { markdownToPlain } = require('./format');
 
 // 구형 진입점(GoBlogWrite.naver 등)은 재로그인으로 튕긴다.
 // blog.naver.com/{blogId}/postwrite 신형 주소만 바로 열린다.
@@ -203,7 +204,9 @@ async function fillEditor(page, { title, content, images = [], imagedir = '' }) 
   await root.locator('.se-component.se-text .se-text-paragraph').last().click();
   const used = new Set();
   let imagesInserted = 0;
-  for (const rawLine of content.split('\n')) {
+  // 스마트에디터는 마크다운을 해석하지 않는다. 그대로 치면 본문에
+  // **굵게** 와 |---|---| 가 문자로 찍히므로 평문으로 바꿔서 넣는다.
+  for (const rawLine of markdownToPlain(content).split('\n')) {
     const m = rawLine.match(IMG_MARKER);
     if (m) {
       const imgPath = imagedir ? path.resolve(imagedir, m[1]) : m[1];

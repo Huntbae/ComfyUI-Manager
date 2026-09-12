@@ -170,6 +170,36 @@ const headfulOn = () => !flag('headless');
     process.exit(code);
   }
 
+  // 미리보기: 네이버에 실제로 찍힐 모양을 터미널에서 본다. 브라우저를 띄우지 않는다.
+  // 올리고 나서 "이게 아닌데" 하는 것보다 먼저 보는 게 낫다.
+  if (cmd === 'preview') {
+    const { markdownToPlain } = require('./src/format');
+    const nx = queue.getNext();
+    if (nx.error) { console.error(`설정 오류: ${nx.hint || nx.error}`); process.exit(1); }
+    if (nx.done) { console.log(`준비된 글을 모두 게시했습니다 (총 ${nx.total}편).`); process.exit(0); }
+    const pathMod = require('path');
+    const dir = nx.config.imagedir || '';
+    console.log('━'.repeat(60));
+    console.log(`제목:  ${nx.title}`);
+    console.log('━'.repeat(60));
+    for (const line of markdownToPlain(nx.body).split('\n')) {
+      const m = line.match(/^\s*\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]\s*$/i);
+      if (m) {
+        const p2 = dir ? pathMod.resolve(dir, m[1]) : m[1];
+        const mark = fs.existsSync(p2) ? '🖼' : '❌없음';
+        console.log(`\n  ${mark} [사진] ${m[1]}`);
+        if (m[2]) console.log(`     ${m[2]}`);
+        console.log('');
+        continue;
+      }
+      console.log(line);
+    }
+    console.log('━'.repeat(60));
+    console.log(`파일: ${nx.file} / 남은 ${nx.remaining}편`);
+    console.log('이대로 올리려면: kart next');
+    process.exit(0);
+  }
+
   // 진단: 글을 쓰지 않고 에디터에 들어가 구조만 덤프한다.
   // 셀렉터가 안 맞을 때 뭘 고쳐야 하는지 알려면 실제 DOM이 필요하다.
   if (cmd === 'doctor') {
@@ -288,6 +318,6 @@ const headfulOn = () => !flag('headless');
     process.exit(1);
   }
 
-  console.error('알 수 없는 명령입니다. status / reset / topic / login / doctor / next(다음) / cookies / post 중 하나를 사용하세요.');
+  console.error('알 수 없는 명령입니다. status / reset / preview / topic / login / doctor / next(다음) / cookies / post 중 하나를 사용하세요.');
   process.exit(1);
 })();
