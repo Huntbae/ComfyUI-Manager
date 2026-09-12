@@ -48,11 +48,15 @@ SLOTS = [
     ("hist_gpcar", 2, [
         "Category:Bugatti Type 35 (original)",
         "Category:Bugatti Type 35",
+        "Category:Bugatti racing cars",
+        "Category:Grand Prix cars",
     ]),
     # 사이클카 세대에서 유일하게 살아남은 계열
     ("hist_morgan", 2, [
         "Category:Morgan 3-Wheeler (Vintage)",
         "Category:Morgan 3-Wheeler",
+        "Category:Morgan three-wheelers",
+        "Category:Morgan vehicles",
     ]),
 ]
 
@@ -309,6 +313,27 @@ def main():
     if not flag("no-apply"):
         n = apply_captions(manifest)
         print(f"원고 {n}편의 사진 캡션에 출처를 넣었습니다.")
+
+    # 못 받은 슬롯이 있으면 어느 편이 막히는지 알려준다.
+    # 큐 중간에서 갑자기 막히는 것보다 지금 아는 게 낫다.
+    missing = {}
+    for name in sorted(os.listdir(ARTICLES)):
+        if not name.endswith((".txt", ".md")):
+            continue
+        body = io.open(os.path.join(ARTICLES, name), encoding="utf-8").read()
+        for m in re.finditer(r"\[\[\s*img\s*:\s*(hist_[^|\]]+?)\s*(?:\|[^\]]*)?\]\]", body):
+            fn = m.group(1).strip()
+            if not os.path.exists(os.path.join(IMAGES, fn)):
+                missing.setdefault(fn, []).append(name)
+    if missing:
+        print()
+        print("⚠ 아래 사진을 못 받았습니다. 해당 편은 게시가 막힙니다:")
+        for fn, arts in sorted(missing.items()):
+            print(f"   {fn}  ← {', '.join(a[:2] + '편' for a in arts)}")
+        print("   카테고리에 쓸 만한 사진이 없을 수 있습니다. --dry-run 으로 후보를 확인하거나,")
+        print("   해당 편의 [[img:hist_...]] 를 자사 사진으로 바꿔주세요.")
+    else:
+        print("\n✅ 원고가 쓰는 역사 사진이 모두 준비됐습니다.")
 
 
 if __name__ == "__main__":

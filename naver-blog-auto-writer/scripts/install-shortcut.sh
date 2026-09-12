@@ -34,6 +34,7 @@ kart() {
     ""|help|-h|--help)
       echo "kart 사용법 (어느 폴더에서든 실행 가능)"
       echo "  kart next            다음 원고 1편 임시저장"
+      echo "  kart retry           막힌 지점을 진단하며 단계적으로 재시도"
       echo "  kart status          큐 현황"
       echo "  kart reset           진행 기록 초기화 (1편부터 다시)"
       echo "  kart login           네이버 로그인 (프로필에 1회)"
@@ -54,6 +55,7 @@ kart() {
     images)  ( cd "\$d" && python3 scripts/rebuild_images.py "\$@" ) ;;
     history) ( cd "\$d" && python3 scripts/fetch_history_images.py "\$@" ) ;;
     daily)   ( cd "\$d" && bash scripts/install-daily.sh "\$@" ) ;;
+    retry)   ( cd "\$d" && bash scripts/retry.sh "\$@" ) ;;
     check)   ( cd "\$d" && npm run --silent check ) ;;
     ffmpeg)  ( cd "\$d" && npm run --silent link-ffmpeg ) ;;
     frames)  ( cd "\$d" && npm run --silent frames -- "\$@" ) ;;
