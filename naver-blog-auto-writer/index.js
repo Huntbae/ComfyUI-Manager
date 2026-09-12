@@ -19,6 +19,9 @@ function arg(name) {
 const flag = (name) => process.argv.includes(`--${name}`);
 // 녹화는 기본 켜짐. --no-record 로만 끈다. (요구사항: 전 과정 녹화)
 const recordOn = () => !flag('no-record');
+// 창을 띄우는 게 기본. 헤드리스는 네이버에서 조용히 막히는 경우가 있어
+// 눈으로 볼 수 있는 쪽을 기본값으로 둔다. 끄려면 --headless.
+const headfulOn = () => !flag('headless');
 
 (async () => {
   const cmd = process.argv[2];
@@ -107,7 +110,7 @@ const recordOn = () => !flag('no-record');
       content: fs.readFileSync(file, 'utf8'),
       images,
       imagedir,
-      headful: flag('headful'),
+      headful: headfulOn(),
       record: recordOn(),
     });
     console.log(JSON.stringify(r, null, 2));
@@ -131,6 +134,37 @@ const recordOn = () => !flag('no-record');
       await context.close();
     }
     process.exit(0);
+  }
+
+  // 진단: 글을 쓰지 않고 에디터에 들어가 구조만 덤프한다.
+  // 셀렉터가 안 맞을 때 뭘 고쳐야 하는지 알려면 실제 DOM이 필요하다.
+  if (cmd === 'doctor') {
+    const { loadConfig } = queue;
+    const cfg = loadConfig();
+    const { launchPersistent } = require('./src/browser');
+    const { resolveEditor, dumpEvidence, writeUrl } = post();
+    const { context } = await launchPersistent({ headful: headfulOn(), record: false });
+    const page = context.pages()[0] || (await context.newPage());
+    try {
+      console.log(`글쓰기 화면 진입: ${writeUrl(cfg.blogId)}`);
+      await page.goto(writeUrl(cfg.blogId), { waitUntil: 'domcontentloaded' });
+      if (page.url().includes('nidlogin')) {
+        console.error('❌ 로그인이 안 돼 있습니다. node index.js login 을 먼저 하세요.');
+        process.exitCode = 1;
+        return;
+      }
+      const { root, where } = await resolveEditor(page);
+      console.log(`에디터 위치: ${where}`);
+      const dir = await dumpEvidence(page, root, `doctor-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+      console.log(`\n덤프 완료: ${dir}`);
+      console.log('  screen.png   화면 스크린샷');
+      console.log('  report.txt   화면 텍스트 + 버튼 목록 (셀렉터 수정용)');
+      console.log('  page.html    전체 HTML');
+      console.log('\nreport.txt 를 보내주시면 어떤 셀렉터가 틀렸는지 잡겠습니다.');
+    } finally {
+      await context.close();
+    }
+    return;
   }
 
   // "다음" 한 방: 다음 미게시 글을 골라 이미지 넣어 임시저장하고 진행 기록까지.
@@ -178,25 +212,33 @@ const recordOn = () => !flag('no-record');
       title: nx.title,
       content: nx.body,
       imagedir: nx.config.imagedir || '',
-      headful: flag('headful'),
+      headful: headfulOn(),
       record: recordOn(),
+      keepOpen: flag('keep-open'),
     });
     if (r.ok) {
+      // 저장이 확인된 경우에만 게시 표시를 남긴다.
+      // 예전엔 확인 없이 표시해서, 네이버에 글이 없는데 올라간 걸로 처리됐다.
       const count = queue.markDone(nx.file);
-      console.log(`✅ 임시저장 완료 — 「${nx.title}」`);
+      console.log(`✅ 임시저장 확인 — 「${nx.title}」`);
+      console.log(`   제목 확인: "${r.titleOnPage || ''}"`);
+      console.log(`   사진 ${r.imagesInserted ?? 0}장 삽입 / 본문에 ${r.imageComponents ?? 0}장 붙음`);
+      console.log(`   저장 확인 방법: ${r.verifiedBy === 'count' ? '임시저장 개수 증가' : '저장 완료 안내 확인'}`);
       console.log(`   누적 ${count}편 / 남은 ${nx.remaining - 1}편`);
       console.log(`   네이버에서 확인: https://blog.naver.com/${nx.config.blogId} → 글쓰기 → 저장된 글`);
-      if (r.video) {
-        console.log(`   녹화: ${r.video}`);
-        console.log('   프레임으로 확인: npm run frames');
-      }
+      if (r.evidence) console.log(`   증거(화면·본문): ${r.evidence}`);
+      if (r.video) console.log(`   녹화: ${r.video}  (npm run frames 로 프레임 확인)`);
       process.exit(0);
     }
-    console.error(`❌ 게시 실패: ${r.reason || ''} ${r.hint || ''}`);
-    console.error('(실패 시 이 글은 다음에 다시 시도됩니다)');
+    console.error(`❌ 실패: ${r.reason || ''}`);
+    if (r.hint) console.error(`   ${r.hint}`);
+    console.error('   진행 기록을 남기지 않았습니다 — 이 글은 다음에 다시 시도됩니다.');
+    if (r.evidence || (r.hint || '').includes('증거')) {
+      console.error('   증거 폴더의 report.txt 와 screen.png 를 보내주시면 원인을 잡겠습니다.');
+    }
     process.exit(1);
   }
 
-  console.error('알 수 없는 명령입니다. status / reset / topic / login / next(다음) / cookies / post 중 하나를 사용하세요.');
+  console.error('알 수 없는 명령입니다. status / reset / topic / login / doctor / next(다음) / cookies / post 중 하나를 사용하세요.');
   process.exit(1);
 })();

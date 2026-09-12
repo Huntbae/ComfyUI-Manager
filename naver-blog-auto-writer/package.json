@@ -14,7 +14,9 @@
     "history": "python3 scripts/fetch_history_images.py",
     "daily": "bash scripts/install-daily.sh",
     "daily-run": "bash scripts/daily.sh",
-    "retry": "bash scripts/retry.sh"
+    "retry": "bash scripts/retry.sh",
+    "test": "node test/editor-test.js",
+    "doctor": "node index.js doctor"
   },
   "license": "ISC",
   "dependencies": {

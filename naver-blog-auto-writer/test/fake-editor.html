@@ -1,0 +1,24 @@
+<meta charset="utf-8"><title>가짜 스마트에디터</title>
+<style>body{font:14px sans-serif}.se-text-paragraph{border:1px solid #ccc;padding:6px;min-height:20px}
+.se-component.se-image{border:2px solid green;padding:4px;margin:4px 0}</style>
+<div id="bar">
+  <button data-name="image" onclick="document.getElementById('fi').click()">사진</button>
+  <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
+  <button data-click-area="tpb.publish">발행</button>
+</div>
+<input id="fi" type="file" style="display:none" onchange="addImg()">
+<div class="se-container">
+  <div class="se-section-documentTitle"><div class="se-text-paragraph" contenteditable></div></div>
+  <div class="se-component se-text"><div class="se-text-paragraph" contenteditable></div></div>
+</div>
+<script>
+let n = 3;
+function doSave(){ if(window.BREAK_SAVE) return; n++; document.getElementById('save').innerText='저장 '+n; }
+function addImg(){
+  const d=document.createElement('div'); d.className='se-component se-image'; d.textContent='[사진]';
+  document.querySelector('.se-container').appendChild(d);
+  const p=document.createElement('div'); p.className='se-text-paragraph'; p.contentEditable=true;
+  const w=document.createElement('div'); w.className='se-component se-text'; w.appendChild(p);
+  document.querySelector('.se-container').appendChild(w); p.focus();
+}
+</script>

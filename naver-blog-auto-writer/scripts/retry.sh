@@ -62,6 +62,16 @@ elif grep -qi 'timeout' "$OUT"; then
 else
   echo "  · 원인이 위 출력에 있습니다. 그대로 복사해서 보내주세요."
 fi
+LATEST="$(ls -td "$ROOT"/out/debug/*/ 2>/dev/null | head -1)"
+if [ -n "$LATEST" ]; then
+  echo
+  echo "증거가 남았습니다: $LATEST"
+  echo "  report.txt  화면 텍스트 + 버튼 목록 (셀렉터가 틀렸는지 바로 보입니다)"
+  echo "  screen.png  그 순간 화면"
+  echo "  이 두 개를 보내주시면 원인을 잡습니다."
+fi
+echo
+echo "에디터 구조만 따로 보려면:  kart doctor"
 echo
 echo "처음부터 다시 올리고 싶으면 (주의):"
 echo "    kart reset && kart next"
