@@ -2,7 +2,7 @@
 
 25편 동안 사이클카트를 파봤습니다. 가져온 것과 안 가져온 것을 나눠서 마무리합니다.
 
-[[img:hist_cyclecar_07.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:hist_cyclecar_07.jpg|1-10-21, Gaillon (nom barré) sur Morgan (cyclecar) / 사진: Agence Rol. Agence photographique (commanditaire), Public domain (Wikimedia Commons)]]
 
 **이미 가져온 것**
 

@@ -2,7 +2,7 @@
 
 말발굽 모양 라디에이터, 좁고 긴 몸체, 뒤로 밀린 운전석. 사진을 여러 장 보다 보면 자꾸 같은 실루엣이 나옵니다. 원본이 있습니다.
 
-[[img:hist_gpcar_01.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:hist_gpcar_01.jpg|"IMG 8995" - Bugatti Biplace Type 35 (1929); Lender - National Motor… / 사진: Kuroczynski, CC BY-SA 4.0 (Wikimedia Commons)]]
 
 부가티 타입 35입니다. 1924년 차예요.
 
@@ -12,7 +12,7 @@
 
 타입 35는 한 대가 아니라 계보입니다. 1925년 35A, 1926년 슈퍼차저를 단 35C, 타르가 플로리오용 35T, 1927년 35B.
 
-[[img:hist_gpcar_02.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:hist_gpcar_02.jpg|"IMG 8996" - Bugatti Biplace Type 35 (1929); Lender - National Motor… / 사진: Kuroczynski, CC BY-SA 4.0 (Wikimedia Commons)]]
 
 **그래서 왜 이 차를 흉내 내나**
 

@@ -2,7 +2,7 @@
 
 이름이 한 글자 차이입니다. 사이클카(cyclecar)와 사이클카트(cyclekart). 저는 이 둘을 섞어 썼고, 그래서 앞 세대부터 정리하고 갑니다.
 
-[[img:hist_cyclecar_02.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:hist_cyclecar_02.jpg|(Circuit de Saint-André-de-Corcy), 29-5-24, grands prix (du) M. C. (M… / 사진: Agence Rol, Public domain (Wikimedia Commons)]]
 
 **언제**
 1910년경부터 1920년대 초반까지. 유럽과 북미에 걸쳐 있었습니다.
@@ -16,7 +16,7 @@
 **최초의 성공작**
 프랑스의 베델리아(Bédélia), 그리고 영국의 G.N.입니다. 베델리아는 파리의 부르보 에 드보(Bourbeau et Devaux)가 1910년부터 1925년까지 만들었고, 설계자 로베르 부르보는 기존 자동차를 축소하는 대신 오토바이의 방식을 그대로 가져다 썼습니다. 이 발상이 사이클카 전체의 성격을 정했어요.
 
-[[img:hist_cyclecar_03.jpg|(출처 확인 전 — scripts/fetch_history_images.py 실행 필요)]]
+[[img:hist_cyclecar_03.jpg|1-10-1923, cyclecar à Berlin / 사진: Agence Rol. Agence photographique (commanditaire), Public domain (Wikimedia Commons)]]
 
 **얼마나 컸나**
 1911년에는 영국과 프랑스에 각각 열 곳 남짓이던 제조사가, 1914년에는 각각 100곳을 넘어섭니다. 독일·오스트리아·미국에도 퍼졌고요.
