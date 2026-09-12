@@ -1,17 +1,28 @@
 <meta charset="utf-8"><title>가짜 스마트에디터</title>
 <style>body{font:14px sans-serif}.se-text-paragraph{border:1px solid #ccc;padding:6px;min-height:20px}
-.se-component.se-image{border:2px solid green;padding:4px;margin:4px 0}</style>
+.se-component.se-image{border:2px solid green;padding:4px;margin:4px 0}
+.se-placeholder{color:#bbb}
+.se-popup-alert-confirm{position:fixed;top:30%;left:30%;background:#fff;border:2px solid #333;padding:20px;z-index:9}
+.se-popup-dim{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:8}</style>
 <div id="bar">
   <button data-name="image" onclick="document.getElementById('fi').click()">사진</button>
   <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
   <button data-click-area="tpb.publish">발행</button>
 </div>
 <input id="fi" type="file" style="display:none" onchange="addImg()">
-<div class="se-container">
-  <div class="se-section-documentTitle"><div class="se-text-paragraph" contenteditable></div></div>
-  <div class="se-component se-text"><div class="se-text-paragraph" contenteditable></div></div>
-</div>
+<div class="se-container" id="doc"></div>
 <script>
+// 네이버 실제 DOM 흉내: 제목칸이 비어 있어도 플레이스홀더 "제목" 이 들어 있다.
+// innerText 를 그대로 읽으면 빈 제목이 통과해 버리는 사고가 여기서 재현된다.
+function blankDoc() {
+  document.getElementById('doc').innerHTML =
+    '<div class="se-section-documentTitle"><div class="se-module-text se-is-empty">'
+    + '<div class="se-text-paragraph" contenteditable><span class="se-placeholder">제목</span></div>'
+    + '</div></div>'
+    + '<div class="se-component se-text"><div class="se-text-paragraph" contenteditable></div></div>';
+}
+blankDoc();
+
 let n = 3;
 function doSave(){ if(window.BREAK_SAVE) return; n++; document.getElementById('save').innerText='저장 '+n; }
 function addImg(){
@@ -21,4 +32,54 @@ function addImg(){
   const w=document.createElement('div'); w.className='se-component se-text'; w.appendChild(p);
   document.querySelector('.se-container').appendChild(w); p.focus();
 }
+
+// 복구 팝업 — 네이버가 글 쓰는 도중에도 띄운다. 확인을 누르면 지금 글이 덮인다.
+function showRecovery(){
+  if (document.querySelector('.se-popup-alert-confirm')) return;
+  const dim=document.createElement('div'); dim.className='se-popup-dim'; document.body.appendChild(dim);
+  const pop=document.createElement('div'); pop.className='se-popup-alert-confirm';
+  pop.innerHTML='<p>작성 중인 글이 있습니다. 이어서 작성하시겠습니까?</p>'
+    +'<button class="se-popup-button-cancel">취소</button>'
+    +'<button class="se-popup-button-confirm">확인</button>';
+  document.body.appendChild(pop);
+  pop.querySelector('.se-popup-button-cancel').onclick=closeRecovery;
+  pop.querySelector('.se-popup-button-confirm').onclick=closeRecovery;
+  pop.querySelector('.se-popup-button-confirm').focus(); // 포커스를 뺏는다
+}
+function closeRecovery(){
+  document.querySelectorAll('.se-popup-alert-confirm, .se-popup-dim').forEach(e=>e.remove());
+}
+
+function unplaceholder(el){
+  const t = el && el.closest && el.closest('.se-section-documentTitle');
+  if (!t) return;
+  t.querySelectorAll('.se-placeholder').forEach(s=>s.remove());
+  t.querySelector('.se-module-text')?.classList.remove('se-is-empty');
+}
+// 실제 에디터는 제목칸에 포커스가 들어오면 플레이스홀더를 감춘다
+document.addEventListener('focusin', (e) => unplaceholder(e.target));
+document.addEventListener('click', (e) => unplaceholder(e.target));
+
+// 실제 에디터에서 난 사고: 제목칸을 클릭하자마자 치면 첫 글자가 사라진다
+let titleInputs = 0;
+function maybeSwallow(el){
+  const t = el && el.closest && el.closest('.se-section-documentTitle');
+  if (!t || !window.SWALLOW_FIRST) return;
+  titleInputs += 1;
+  if (titleInputs !== 1) return;
+  const p = t.querySelector('.se-text-paragraph');
+  p.textContent = (p.textContent || '').slice(1);
+  const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+}
+
+let typed = 0;
+document.addEventListener('input', (e) => {
+  unplaceholder(e.target);
+  maybeSwallow(e.target);
+  typed += 1;
+  // 에디터가 스스로 리로드돼 문서가 통째로 비워지는 사고 재현
+  if (window.WIPE_AT && typed === window.WIPE_AT) { blankDoc(); showRecovery(); }
+  else if (window.POPUP_AT && typed === window.POPUP_AT) { showRecovery(); }
+});
 </script>
