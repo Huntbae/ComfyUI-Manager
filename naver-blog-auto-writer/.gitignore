@@ -4,3 +4,7 @@ out/
 .chrome-profile/
 images_src/
 images_prev/
+
+# 진행 기록은 기기 간 공유해야 한다 (맥북/아이맥이 같은 지점에서 이어가도록).
+# 리포 루트 .gitignore 의 *.json 규칙에 걸리므로 여기서 되살린다.
+!state/progress.json

@@ -5,11 +5,34 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const CONFIG_PATH = path.join(ROOT, 'config.json');
-const PROGRESS_PATH = path.join(ROOT, '.auth', 'progress.json');
+// 진행 기록은 git으로 추적한다 — 맥북에서 올린 걸 아이맥이 알아야
+// 같은 글을 두 번 올리지 않는다. 비밀정보가 아니라 "몇 편까지 올렸나"일 뿐이다.
+const PROGRESS_PATH = path.join(ROOT, 'state', 'progress.json');
+// 예전 위치(.auth/는 gitignore라 기기 간 공유가 안 됐다)
+const LEGACY_PROGRESS_PATH = path.join(ROOT, '.auth', 'progress.json');
 const TEXT_EXTS = ['.txt', '.md', '.markdown'];
 
 function readJson(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return fallback; }
+}
+
+// 예전 기록(.auth/progress.json)이 있으면 새 위치로 한 번 옮긴다.
+// 이미 올린 글을 다시 올리는 사고를 막기 위해 합집합으로 병합한다.
+function migrateLegacy() {
+  if (!fs.existsSync(LEGACY_PROGRESS_PATH)) return;
+  const old = readJson(LEGACY_PROGRESS_PATH, { posted: [] }).posted || [];
+  if (!old.length) return;
+  const cur = readJson(PROGRESS_PATH, { posted: [] }).posted || [];
+  const merged = [...new Set([...cur, ...old])];
+  fs.mkdirSync(path.dirname(PROGRESS_PATH), { recursive: true });
+  fs.writeFileSync(PROGRESS_PATH, JSON.stringify({ posted: merged }, null, 2));
+  try { fs.renameSync(LEGACY_PROGRESS_PATH, `${LEGACY_PROGRESS_PATH}.migrated`); } catch { /* 무시 */ }
+  console.error(`(진행 기록 ${old.length}건을 state/progress.json 으로 옮겼습니다 — 이제 기기 간 공유됩니다)`);
+}
+
+function readProgress() {
+  migrateLegacy();
+  return readJson(PROGRESS_PATH, { posted: [] });
 }
 
 function loadConfig() {
@@ -33,7 +56,7 @@ function getNext() {
     return { done: false, error: 'no_source', hint: 'config.json의 sourceDir를 확인하세요' };
   }
   const files = listArticles(config.sourceDir);
-  const posted = new Set((readJson(PROGRESS_PATH, { posted: [] }).posted) || []);
+  const posted = new Set(readProgress().posted || []);
   const file = files.find((n) => !posted.has(n));
   const remaining = files.filter((n) => !posted.has(n)).length;
   if (!file) return { done: true, total: files.length };
@@ -46,7 +69,7 @@ function getNext() {
 }
 
 function markDone(file) {
-  const progress = readJson(PROGRESS_PATH, { posted: [] });
+  const progress = readProgress();
   if (!Array.isArray(progress.posted)) progress.posted = [];
   if (!progress.posted.includes(file)) progress.posted.push(file);
   fs.mkdirSync(path.dirname(PROGRESS_PATH), { recursive: true });
@@ -55,8 +78,11 @@ function markDone(file) {
 }
 
 function resetProgress() {
-  const before = (readJson(PROGRESS_PATH, { posted: [] }).posted || []).length;
-  try { fs.unlinkSync(PROGRESS_PATH); } catch { /* 없으면 그만 */ }
+  const before = (readProgress().posted || []).length;
+  // 파일을 지우지 않고 비운다. 지우면 다른 기기에서 pull 할 때 변경이 안 보인다.
+  fs.mkdirSync(path.dirname(PROGRESS_PATH), { recursive: true });
+  fs.writeFileSync(PROGRESS_PATH, JSON.stringify({ posted: [] }, null, 2));
+  try { fs.unlinkSync(LEGACY_PROGRESS_PATH); } catch { /* 없으면 그만 */ }
   return before;
 }
 
@@ -67,7 +93,7 @@ function status() {
     return { error: 'no_source', hint: 'config.json의 sourceDir를 확인하세요' };
   }
   const files = listArticles(config.sourceDir);
-  const posted = new Set((readJson(PROGRESS_PATH, { posted: [] }).posted) || []);
+  const posted = new Set(readProgress().posted || []);
   return {
     total: files.length,
     items: files.map((n) => ({ file: n, done: posted.has(n) })),
@@ -75,4 +101,4 @@ function status() {
   };
 }
 
-module.exports = { getNext, markDone, loadConfig, resetProgress, status };
+module.exports = { getNext, markDone, loadConfig, resetProgress, status, PROGRESS_PATH };

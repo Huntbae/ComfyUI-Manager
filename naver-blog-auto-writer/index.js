@@ -39,12 +39,17 @@ const headfulOn = () => !flag('headless');
       ? `진행 기록을 지웠습니다 (게시 표시돼 있던 ${n}편 해제).`
       : '지울 진행 기록이 없습니다. 이미 처음 상태입니다.');
     console.log('이제 node index.js next 를 실행하면 1편부터 다시 올라갑니다.');
+    if (!flag('no-sync')) {
+      const p = require('./src/sync').pushProgress('진행 기록 초기화');
+      if (p.ok) console.log('초기화를 다른 기기와 공유했습니다.');
+    }
     console.log('※ 네이버에 이미 임시저장된 글은 지워지지 않습니다. 필요하면 직접 삭제하세요.');
     process.exit(0);
   }
 
   // 큐 현황
   if (cmd === 'status') {
+    if (!flag('no-sync')) require('./src/sync').pullProgress();
     const st = queue.status();
     if (st.error) {
       console.error(`설정 오류: ${st.hint || st.error}`);
@@ -169,6 +174,14 @@ const headfulOn = () => !flag('headless');
 
   // "다음" 한 방: 다음 미게시 글을 골라 이미지 넣어 임시저장하고 진행 기록까지.
   if (cmd === 'next' || cmd === '다음') {
+    // 다른 기기가 올린 기록을 먼저 받아온다.
+    // 이게 없으면 맥북에서 3편까지 올린 걸 아이맥이 모르고 1편부터 다시 올린다.
+    if (!flag('no-sync')) {
+      const sync = require('./src/sync');
+      const r = sync.pullProgress();
+      if (r.ok && r.count !== null) console.log(`진행 기록 동기화: ${r.count}편 게시됨`);
+      else if (!r.ok) console.log(`(진행 기록 동기화 건너뜀: ${r.reason} — 이 기기만의 기록으로 진행합니다)`);
+    }
     const nx = queue.getNext();
     if (nx.error) {
       console.error(`설정 오류: ${nx.hint || nx.error}`);
@@ -228,6 +241,13 @@ const headfulOn = () => !flag('headless');
       console.log(`   네이버에서 확인: https://blog.naver.com/${nx.config.blogId} → 글쓰기 → 저장된 글`);
       if (r.evidence) console.log(`   증거(화면·본문): ${r.evidence}`);
       if (r.video) console.log(`   녹화: ${r.video}  (npm run frames 로 프레임 확인)`);
+      // 다른 기기가 같은 글을 다시 올리지 않도록 기록을 공유한다.
+      if (!flag('no-sync')) {
+        const sync = require('./src/sync');
+        const p = sync.pushProgress(`게시 기록: ${nx.file}`);
+        if (p.ok && p.note !== 'no_change') console.log('   진행 기록을 다른 기기와 공유했습니다.');
+        else if (!p.ok) console.log(`   ⚠ 진행 기록 공유 실패(${p.reason}) — 다른 기기에서 이 글이 다시 올라갈 수 있습니다.`);
+      }
       process.exit(0);
     }
     console.error(`❌ 실패: ${r.reason || ''}`);

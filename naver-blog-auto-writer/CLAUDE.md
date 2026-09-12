@@ -4,6 +4,38 @@
 **너(로컬 Claude Code)는 이 맥북에서 직접 실행되므로**, 네이버 접속·크롬 구동·파일 접근이 모두 가능하다.
 사용자가 **"다음"** 이라고 하면 아래를 순서대로 수행하고, 오류가 나면 스스로 진단·수정·재실행해서 반드시 성공시킨다 (PDCA).
 
+## 어느 기기에서든 — 먼저 이것부터
+
+맥북·아이맥 어디서 열렸든, 프로젝트 폴더에서 **`bash scripts/setup.sh`** 를 먼저 돌린다.
+Node·의존성·파이썬·크롬·ffmpeg·`kart` 단축키·로직 검증·진행 기록 동기화를 한 번에 확인하고,
+안 된 것만 목록으로 알려준다. 여러 번 돌려도 안전하다.
+
+레포가 아예 없는 기기라면 사용자에게 이 블록을 안내한다:
+
+```bash
+REPO=$(find ~ -maxdepth 6 -type d -name naver-blog-auto-writer 2>/dev/null | head -1)
+[ -z "$REPO" ] && { mkdir -p ~/ClanHunts && cd ~/ClanHunts \
+  && git clone https://github.com/Huntbae/ComfyUI-Manager.git \
+  && REPO=~/ClanHunts/ComfyUI-Manager/naver-blog-auto-writer; }
+cd "$REPO" && git fetch origin claude/naver-blog-auto-writer-tgbpz6 \
+  && git checkout claude/naver-blog-auto-writer-tgbpz6 \
+  && git pull origin claude/naver-blog-auto-writer-tgbpz6 \
+  && bash scripts/setup.sh
+```
+
+### 기기마다 따로인 것 / 공유되는 것
+
+| | 어디에 | 공유되나 |
+|---|---|---|
+| 네이버 로그인 | `.chrome-profile/` | ❌ 기기마다 `kart login` 1회 (자격증명은 동기화하지 않는다) |
+| 진행 기록 | `state/progress.json` | ✅ git으로 자동 동기화 |
+| 역사 사진 | `images/hist_*.jpg` | ❌ 기기마다 `kart history` (결정적이라 같은 사진이 받아진다) |
+| 원고·코드 | git | ✅ |
+
+**진행 기록이 공유되는 게 중요하다.** 맥북에서 3편까지 올린 걸 아이맥이 모르면
+1편부터 다시 올려 네이버에 중복이 쌓인다. `next` 는 실행 전에 원격 기록을 받아오고,
+성공하면 기록을 되돌려 보낸다 (`state/progress.json` 한 파일만, `--no-sync` 로 끌 수 있다).
+
 ## 최초 1회 준비 (아직 안 됐으면 먼저)
 
 0. 환경 점검: `npm run check` (Node 18+, 크롬, 녹화용 ffmpeg)
@@ -90,6 +122,8 @@ post.js 를 고쳤으면 반드시 `npm test` 를 돌린다.
 어느 폴더에서든 `kart` 로 전부 실행된다. 이미 설치돼 있으면 갱신만 한다.
 
 ```
+kart setup                                     # 이 기기 1회 설정 (제일 먼저)
+kart sync                                      # 진행 기록만 다른 기기와 맞추기
 kart next / status / reset / login / topic     # node index.js ...
 kart retry                                     # 막힌 지점 진단하며 단계적 재시도
 kart doctor                                    # 에디터 구조 덤프 (셀렉터 점검)

@@ -16,7 +16,8 @@
     "daily-run": "bash scripts/daily.sh",
     "retry": "bash scripts/retry.sh",
     "test": "node test/editor-test.js",
-    "doctor": "node index.js doctor"
+    "doctor": "node index.js doctor",
+    "setup": "bash scripts/setup.sh"
   },
   "license": "ISC",
   "dependencies": {

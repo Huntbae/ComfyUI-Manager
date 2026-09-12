@@ -33,6 +33,8 @@ kart() {
   case "\$cmd" in
     ""|help|-h|--help)
       echo "kart 사용법 (어느 폴더에서든 실행 가능)"
+      echo "  kart setup           이 기기 1회 설정 (의존성·ffmpeg·단축키·점검)"
+      echo "  kart sync            진행 기록만 다른 기기와 맞추기"
       echo "  kart next            다음 원고 1편 임시저장"
       echo "  kart retry           막힌 지점을 진단하며 단계적으로 재시도"
       echo "  kart doctor          글은 안 쓰고 에디터 구조만 덤프 (셀렉터 점검)"
@@ -58,6 +60,8 @@ kart() {
     history) ( cd "\$d" && python3 scripts/fetch_history_images.py "\$@" ) ;;
     daily)   ( cd "\$d" && bash scripts/install-daily.sh "\$@" ) ;;
     retry)   ( cd "\$d" && bash scripts/retry.sh "\$@" ) ;;
+    setup)   ( cd "\$d" && bash scripts/setup.sh "\$@" ) ;;
+    sync)    ( cd "\$d" && node -e "const r=require('./src/sync').pullProgress(); console.log(r.ok ? ('동기화 완료 — 게시 '+(r.count===null?0:r.count)+'편') : ('동기화 실패: '+r.reason));" ) ;;
     test)    ( cd "\$d" && npm test --silent ) ;;
     check)   ( cd "\$d" && npm run --silent check ) ;;
     ffmpeg)  ( cd "\$d" && npm run --silent link-ffmpeg ) ;;
