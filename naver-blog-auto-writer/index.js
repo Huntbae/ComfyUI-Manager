@@ -170,6 +170,45 @@ const headfulOn = () => !flag('headless');
     process.exit(code);
   }
 
+  // 여러 편을 이어서 올린다. 각 편은 next 와 똑같이 검증·동기화를 거친다.
+  //   node index.js all           남은 전부
+  //   node index.js all 5         5편만
+  //   node index.js all --delay 120
+  // 실패하면 거기서 멈춘다. 같은 오류로 계속 실패하는 걸 반복할 이유가 없다.
+  if (cmd === 'all' || cmd === '전부') {
+    const { spawnSync } = require('child_process');
+    const st = queue.status();
+    if (st.error) { console.error(`설정 오류: ${st.hint || st.error}`); process.exit(1); }
+    const asked = Number(process.argv[3]);
+    const want = Number.isFinite(asked) && asked > 0 ? Math.min(asked, st.remaining) : st.remaining;
+    const delay = Number(arg('delay')) > 0 ? Number(arg('delay')) : 90;
+
+    if (!want) { console.log('올릴 글이 없습니다.'); process.exit(0); }
+    console.log(`${want}편을 이어서 올립니다. 사이에 ${delay}초씩 쉽니다.`);
+    console.log('짧은 시간에 많이 올리면 비정상 활동으로 보일 수 있어 간격을 둡니다.');
+    console.log('중간에 멈추려면 Ctrl+C. 이미 올린 편은 기록에 남아 다시 안 올라갑니다.\n');
+
+    const passthru = process.argv.slice(3).filter((a) => a !== String(asked) && a !== '--delay' && a !== arg('delay'));
+    let done = 0;
+    for (let i = 1; i <= want; i += 1) {
+      console.log(`${'─'.repeat(56)}\n[${i}/${want}]`);
+      const r = spawnSync(process.execPath, [__filename, 'next', ...passthru], { stdio: 'inherit' });
+      if (r.status !== 0) {
+        console.error(`\n중단합니다. ${done}편 올렸고 ${i}번째에서 막혔습니다.`);
+        console.error('위 오류를 먼저 해결한 뒤 kart all 을 다시 실행하세요.');
+        process.exit(1);
+      }
+      done += 1;
+      if (i < want) {
+        console.log(`\n${delay}초 쉽니다...`);
+        spawnSync(process.execPath, ['-e', `setTimeout(()=>{}, ${delay * 1000})`]);
+      }
+    }
+    console.log(`\n${'─'.repeat(56)}\n✅ ${done}편 임시저장 완료. 네이버 > 글쓰기 > 저장된 글에서 확인하세요.`);
+    console.log('   발행은 하지 않았습니다. 검토 후 직접 발행하세요.');
+    process.exit(0);
+  }
+
   // 미리보기: 네이버에 실제로 찍힐 모양을 터미널에서 본다. 브라우저를 띄우지 않는다.
   // 올리고 나서 "이게 아닌데" 하는 것보다 먼저 보는 게 낫다.
   if (cmd === 'preview') {
@@ -318,6 +357,6 @@ const headfulOn = () => !flag('headless');
     process.exit(1);
   }
 
-  console.error('알 수 없는 명령입니다. status / reset / preview / topic / login / doctor / next(다음) / cookies / post 중 하나를 사용하세요.');
+  console.error('알 수 없는 명령입니다. status / reset / preview / topic / login / doctor / next(다음) / all(전부) / cookies / post 중 하나를 사용하세요.');
   process.exit(1);
 })();

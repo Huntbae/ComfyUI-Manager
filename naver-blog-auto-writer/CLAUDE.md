@@ -154,7 +154,9 @@ post.js 를 고쳤으면 반드시 `npm test` 를 돌린다.
 kart setup                                     # 이 기기 1회 설정 (제일 먼저)
 kart preview                                   # 네이버에 찍힐 모양 미리보기
 kart sync                                      # 진행 기록만 다른 기기와 맞추기
-kart next / status / reset / login / topic     # node index.js ...
+kart next                                      # 1편 임시저장
+kart all [편수]                                # 남은 글 이어서 (기본 90초 간격)
+kart status / reset / login / topic            # node index.js ...
 kart retry                                     # 막힌 지점 진단하며 단계적 재시도
 kart doctor                                    # 에디터 구조 덤프 (셀렉터 점검)
 kart test                                      # 가짜 에디터로 로직 검증
@@ -180,6 +182,19 @@ kart where / cd                                # 경로 확인·이동
 사용자가 "자동화 확인해줘" 라고 하면 `kart daily status` 로 등록 상태와 최근 로그를 보여준다.
 
 사용자가 `command not found: kart` 를 겪으면 `source ~/.zshrc` 를 안내한다.
+
+## 여러 편을 한 번에 — kart all
+
+`kart all` 은 남은 글을 이어서 올린다. 각 편은 `next` 와 똑같이 검증·동기화를 거치고,
+**실패하면 거기서 멈춘다.** 같은 오류로 계속 실패하는 걸 반복할 이유가 없다.
+
+- 기본 간격 90초. `--delay 120` 으로 바꿀 수 있다.
+  짧은 시간에 수십 건을 몰아 올리면 비정상 활동으로 보일 수 있어 간격을 둔다.
+- `kart all 5` 처럼 편수를 지정할 수 있다.
+- 중간에 Ctrl+C 로 멈춰도 이미 올린 편은 기록에 남아 다시 올라가지 않는다.
+
+사용자가 "전부 올려줘" 라고 하면 이 명령을 쓰되, 수십 편을 한 번에 올리는 건
+계정 쪽 위험을 한 번 알리고 진행한다.
 
 ## 큐 관리
 

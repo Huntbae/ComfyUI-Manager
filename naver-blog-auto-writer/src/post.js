@@ -490,7 +490,12 @@ async function fillEditor(page, opts) {
 async function writePost({
   blogId, title, content, images = [], imagedir = '', headful = true, record = true,
 }) {
-  const { browser, context, hasCookies } = await launch({ headful, record });
+  let browser; let context; let hasCookies;
+  try {
+    ({ browser, context, hasCookies } = await launch({ headful, record }));
+  } catch (e) {
+    return { ok: false, reason: 'launch_failed', hint: e.message.split('\n')[0] };
+  }
   if (!hasCookies) {
     await browser.close();
     return { ok: false, reason: 'no_cookies', hint: '먼저 쿠키를 저장하거나 프로필 로그인(node index.js login)을 하세요' };
@@ -519,7 +524,14 @@ async function writePostProfile({
   blogId, title, content, images = [], imagedir = '', headful = true, record = true, keepOpen = false,
 }) {
   const { launchPersistent } = require('./browser');
-  const { context } = await launchPersistent({ headful, record });
+  // 브라우저 실행 실패는 여기서 잡아 문장으로 돌려준다.
+  // try 밖에 두면 playwright 스택 트레이스가 그대로 터져 나온다.
+  let context;
+  try {
+    ({ context } = await launchPersistent({ headful, record }));
+  } catch (e) {
+    return { ok: false, reason: 'launch_failed', hint: e.message.split('\n')[0] };
+  }
   const page = context.pages()[0] || (await context.newPage());
   try {
     await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
