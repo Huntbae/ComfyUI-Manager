@@ -45,7 +45,7 @@ SLOTS = [
         "Category:Cyclecars",   # 사이클카트 카테고리가 4장뿐이라 모자라면 여기서 보충
     ]),
     # 사이클카트가 형태를 빌려온 1920~30년대 그랑프리 카
-    ("hist_gpcar", 2, [
+    ("hist_gpcar", 1, [
         "Category:Bugatti Type 35 (original)",
         "Category:Bugatti Type 35",
         "Category:Bugatti racing cars",
@@ -61,6 +61,14 @@ SLOTS = [
 ]
 
 # 재사용 가능하다고 볼 라이선스. Commons의 License / LicenseShortName 값 기준.
+# 파일명·설명이 모두 쓸모없을 때 쓸 최소한의 설명
+FALLBACK_DESC = {
+    "hist_cyclecar": "1910~20년대 사이클카",
+    "hist_cyclekart": "사이클카트",
+    "hist_gpcar": "1920~30년대 그랑프리 카",
+    "hist_morgan": "모건 3륜차",
+}
+
 FREE_HINTS = ("pd", "public domain", "cc0", "cc-by", "cc by", "cc-zero", "attribution")
 BLOCK_HINTS = ("fair use", "non-free", "nonfree", "noncommercial", "nc-", "-nd", " nd ")
 EXT_OK = (".jpg", ".jpeg", ".png")
@@ -168,8 +176,15 @@ def category_files(cat, limit=200):
 
 
 def short(s, n):
-    s = (s or "").strip()
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+    """단어 중간에서 자르지 않는다. '(M…' 처럼 끊기면 읽기 나쁘다."""
+    s = " ".join((s or "").split())
+    if len(s) <= n:
+        return s
+    cut = s[:n]
+    sp = cut.rfind(" ")
+    if sp > n * 0.6:          # 너무 많이 잘려나가지 않는 선에서만 단어 경계 사용
+        cut = cut[:sp]
+    return cut.rstrip(" ,.;:-([") + "…"
 
 
 def clean_title(title):
@@ -179,18 +194,45 @@ def clean_title(title):
     t = t.replace("_", " ")
     t = re.sub(r"\s*-\s*btv[0-9a-z]+$", "", t)          # 프랑스 국립도서관 정리번호
     t = re.sub(r"\s*\([0-9a-f]{6,}\)$", "", t)          # 플리커 등의 숫자 꼬리표
+    t = re.sub(r"\s*\(\d{6,}\)$", "", t)                # 플리커 사진 번호
+    # 카메라 파일명이 앞에 붙은 경우: "IMG 8995" - 실제설명  ->  실제설명
+    t = re.sub(r'(?i)^["\u2019\u201c\']?\s*(?:img|dsc|dscn|p|pict|photo|image)[ _-]*\d+\s*["\u2019\u201d\']?\s*[-–—:]\s*', "", t)
+    t = t.strip(' "\u201c\u201d\'')
     return re.sub(r"\s+", " ", t).strip()
 
 
-def caption_for(item):
+# 파일명이 설명 구실을 하는지. "-i---i-", "IMG 8995", "DSC_0123" 같은 건 아니다.
+def is_useless_title(t):
+    t = (t or "").strip()
+    if len(t) < 6:
+        return True
+    letters = sum(1 for c in t if c.isalpha())
+    if letters < 4:
+        return True
+    return bool(re.fullmatch(r'(?i)(img|dsc|dscn|p|pict|photo|image)[ _-]*\d+.*', t))
+
+
+def fallback_for(fname):
+    for prefix, desc in FALLBACK_DESC.items():
+        if str(fname).startswith(prefix):
+            return desc
+    return "역사 사진"
+
+
+def caption_for(item, fname=None):
     """캡션 = 사진 설명 + 출처. 이게 본문에 그대로 들어간다.
 
     설명은 파일명을 쓴다. Commons의 ImageDescription은 도서관 목록 메타데이터
     ("Sujet : Cyclecars -- France Courses automobiles -- ...") 인 경우가 많아
     블로그 본문에 그대로 넣기에 나쁘다.
     """
-    desc = clean_title(item.get("title")) or short(item.get("description"), 55) or "역사 사진"
-    desc = short(desc, 70)
+    title = clean_title(item.get("title"))
+    if is_useless_title(title):
+        # 파일명이 쓸모없으면 Commons 설명으로, 그것도 없으면 슬롯 이름으로 대체한다.
+        # 캡션이 "-i---i-" 로 나가는 것보다는 낫다.
+        title = (item.get("description") or item.get("fallback")
+                 or fallback_for(fname or item.get("_name") or ""))
+    desc = short(title, 70)
     who = short(item.get("artist"), 55)
     lic = short(item.get("license"), 20) or "Wikimedia Commons"
     return f"{desc} / 사진: {who}, {lic} (Wikimedia Commons)"
@@ -220,7 +262,7 @@ def apply_captions(manifest):
             info = manifest.get(fn)
             if not info:
                 return m.group(0)
-            return f"[[img:{fn}|{caption_for(info)}]]"
+            return f"[[img:{fn}|{caption_for(info, fn)}]]"
 
         s = re.sub(r"\[\[\s*img\s*:\s*(hist_[^|\]]+?)\s*(?:\|[^\]]*)?\]\]", repl, s)
         if s != orig:
@@ -281,6 +323,7 @@ def main():
                 print(f"      ! 내려받기 실패: {e}")
                 continue
             manifest[fname] = {
+                "fallback": FALLBACK_DESC.get(prefix, "역사 사진"),
                 "title": pick["title"],
                 "page": pick["page"],
                 "artist": pick["artist"],
