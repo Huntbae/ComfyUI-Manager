@@ -38,23 +38,31 @@ cd "$REPO" && git fetch origin claude/naver-blog-auto-writer-tgbpz6 \
 
 ## 최초 1회 준비 (아직 안 됐으면 먼저)
 
-0. 환경 점검: `npm run check` (Node 18+, 크롬, 녹화용 ffmpeg)
-   - "ffmpeg 미확인"이 뜨면 `npm run link-ffmpeg` 로 시스템 ffmpeg를 연결한다 (함정 5).
-1. 의존성: `npm install`
-2. 네이버 로그인 프로필: `.chrome-profile` 폴더가 없으면 `node index.js login` 을 실행해
-   열리는 크롬 창에서 네이버에 로그인하게 안내한다. (한 번만 하면 이후 유지됨)
-   - 사용자가 "이미 크롬에 로그인돼 있다"고 해도, 이 자동화는 **전용 프로필**을 쓰므로
-     그 전용 프로필에 최초 1회 로그인이 필요하다.
-3. `config.json`의 `blogId`가 맞는지 확인 (기본 edukart).
+`bash scripts/setup.sh` 하나면 된다. Node·의존성·파이썬·크롬·ffmpeg·`kart` 단축키·
+로직 검증·진행 기록 동기화를 확인하고 안 된 것만 목록으로 알려준다.
+
+거의 항상 남는 건 **네이버 로그인** 하나다. `node index.js login` 을 실행해
+열리는 크롬 창에서 로그인하게 안내한다. 사용자가 "이미 크롬에 로그인돼 있다"고 해도,
+이 자동화는 **전용 프로필**(`.chrome-profile`)을 쓰므로 그 프로필에 1회 로그인이 필요하다.
+`login` 은 로그인 후 실제 글쓰기 화면까지 열어 확인하고, 안 되면 종료코드 1로 끝난다.
+
+`config.json` 의 `blogId` 는 `huntbae` 다.
 
 ## "다음" 을 받으면
 
-1. `node index.js next` 를 실행한다.
-   - 이 명령이 자동으로: 다음 미게시 글 선택 → 제목·본문 사람속도 타이핑 →
-     본문 `[[img:파일]]` 위치에 `images/`의 사진 삽입 → 임시저장 → 진행 기록.
-2. 결과를 보고한다:
-   - 성공(`✅ 임시저장 완료`) → "「제목」 임시저장 완료, 남은 N편. 네이버 블로그 > 글쓰기 > 저장된 글에서 확인하세요."
-   - 실패 → 아래 자가수정 루프.
+1. 역사 사진이 준비됐는지 본다. 원고에 `hist_*` 가 있는데 `images/` 에 없거나
+   캡션에 `(출처 확인 전` 이 남아 있으면 먼저 `python3 scripts/fetch_history_images.py`.
+2. `node index.js next` 를 실행한다.
+   - 다음 미게시 글 선택 → 다른 기기 진행 기록 받아오기 → 제목·본문 사람속도 타이핑
+     → `[[img:파일]]` 위치에 사진 삽입 → **채워졌는지 확인** → 임시저장
+     → **저장됐는지 확인** → 진행 기록 남기고 다른 기기와 공유.
+3. 결과를 보고한다:
+   - 성공(`✅ 임시저장 확인`) → 제목·사진 장수·저장 확인 방법을 그대로 전하고,
+     "네이버 블로그 > 글쓰기 > 저장된 글에서 확인하세요" 를 덧붙인다.
+   - 실패 → 아래 자가수정 루프. **실패는 진행 기록을 남기지 않으므로 그 글은 다시 대상이 된다.**
+
+올리기 전에 내용을 확인하고 싶다면 `node index.js preview` — 브라우저 없이
+네이버에 찍힐 모양을 그대로 보여준다.
 
 ## 게시가 됐다고 나오는데 네이버에 글이 없을 때
 
@@ -98,10 +106,17 @@ post.js 를 고쳤으면 반드시 `npm test` 를 돌린다.
 
 - `need_login` → `node index.js login` 안내/실행 후 다시 `next`.
 - `error: net::...` (네트워크) → 인터넷 연결 확인 후 재시도.
-- 에디터 셀렉터 관련 타임아웃(제목/본문/저장 버튼을 못 찾음) → `src/post.js`의
-  해당 셀렉터를 실제 네이버 스마트에디터 DOM에 맞게 수정한다. 확인 방법:
-  `node index.js next --headful` 로 눈으로 보며 어느 단계에서 막히는지 파악 →
-  개발자도구로 실제 클래스명을 확인 → `SEL`/셀렉터 갱신 → 재실행.
+- **먼저 `out/debug/<시각>/report.txt` 를 읽는다.** 실패할 때마다 화면 텍스트와
+  버튼 목록(`data-click-area`·`data-name`·클래스)이 저장된다. 셀렉터가 틀렸는지 여기서 바로 보인다.
+  `screen.png` 로 그 순간 화면도 볼 수 있다. 추측하지 말고 이 파일부터 본다.
+- 셀렉터 관련 실패(`editor_not_found`, `save_button_not_found`, `title_empty`) →
+  `node index.js doctor` 로 글은 쓰지 않고 구조만 덤프한 뒤, `report.txt` 의 버튼 목록에 맞춰
+  `src/post.js` 의 셀렉터를 고친다. 고쳤으면 **반드시 `npm test`** 로 회귀를 확인한다.
+- 창은 기본으로 뜬다(headful). 창 없이 돌리려면 `--headless`.
+  `--keep-open` 을 주면 저장 후 창을 열어둬 눈으로 확인할 수 있다.
+- `save_not_confirmed` / `save_unverifiable` → 저장 버튼은 눌렸는데 확인이 안 된 것.
+  `report.txt` 에서 저장 버튼의 실제 라벨을 확인해 `readSaveState()` 의 셀렉터·개수 파싱을 고친다.
+  **확인 로직을 지워서 통과시키지 말 것.** 그게 원래 사고의 원인이었다.
 - 복구 팝업/도움말 패널이 클릭을 가로채면 `dismissRecoveryPopup`/`closeHelpPanel`의
   셀렉터를 실제 팝업 DOM에 맞게 보강.
 - `❌ 사진 출처가 아직 채워지지 않았습니다` → `python3 scripts/fetch_history_images.py` 를 먼저 실행한다.
