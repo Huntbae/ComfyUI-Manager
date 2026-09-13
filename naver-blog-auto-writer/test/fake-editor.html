@@ -26,12 +26,22 @@ blankDoc();
 let n = 3;
 function doSave(){ if(window.BREAK_SAVE) return; n++; document.getElementById('save').innerText='저장 '+n; }
 function addImg(){
-  const d=document.createElement('div'); d.className='se-component se-image'; d.textContent='[사진]';
+  const d=document.createElement('div'); d.className='se-component se-image';
+  d.innerHTML='[사진]'
+    + '<div class="se-module se-module-text se-caption se-is-empty" style="display:none">'
+    + '<div class="se-text-paragraph" contenteditable><span class="se-placeholder">사진 설명을 입력하세요.</span></div>'
+    + '</div>';
   document.querySelector('.se-container').appendChild(d);
   const p=document.createElement('div'); p.className='se-text-paragraph'; p.contentEditable=true;
   const w=document.createElement('div'); w.className='se-component se-text'; w.appendChild(p);
   document.querySelector('.se-container').appendChild(w); p.focus();
 }
+
+// 사진을 눌러야 캡션칸이 나타난다 (네이버 실제 동작)
+document.addEventListener('click', (e) => {
+  const img = e.target.closest && e.target.closest('.se-component.se-image');
+  if (img) { const c = img.querySelector('.se-caption'); if (c) c.style.display = 'block'; }
+});
 
 // 복구 팝업 — 네이버가 글 쓰는 도중에도 띄운다. 확인을 누르면 지금 글이 덮인다.
 function showRecovery(){
@@ -51,10 +61,11 @@ function closeRecovery(){
 }
 
 function unplaceholder(el){
-  const t = el && el.closest && el.closest('.se-section-documentTitle');
+  const t = el && el.closest && el.closest('.se-section-documentTitle, .se-caption');
   if (!t) return;
   t.querySelectorAll('.se-placeholder').forEach(s=>s.remove());
-  t.querySelector('.se-module-text')?.classList.remove('se-is-empty');
+  const mod = t.classList.contains('se-caption') ? t : t.querySelector('.se-module-text');
+  mod?.classList.remove('se-is-empty');
 }
 // 실제 에디터는 제목칸에 포커스가 들어오면 플레이스홀더를 감춘다
 document.addEventListener('focusin', (e) => unplaceholder(e.target));

@@ -42,7 +42,7 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     });
     console.log(`\n── ${label}: ok=${r.ok} reason=${r.reason || '-'} 시도=${r.attempts}`);
     if (!r.ok) console.log(`   ${r.hint || ''}`);
-    if (r.ok) console.log(`   제목="${r.titleOnPage}" 사진=${r.imageComponents} 본문=${r.bodyChars}자`);
+    if (r.ok) console.log(`   제목="${r.titleOnPage}" 사진=${r.imageComponents} 본문=${r.bodyChars}자 캡션=${JSON.stringify(r.captions || [])}`);
     await ctx.close();
     return r;
   };
@@ -73,6 +73,8 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     ['다시 쓴 글이 온전한가', d.imageComponents === 1 && d.titleOnPage === '테스트 제목입니다'],
     ['복구 팝업이 떠도 글이 올라가나', e.ok === true],
     ['복구 팝업 뒤에도 사진이 붙어 있나', e.imageComponents === 1],
+    ['사진 설명이 캡션칸에 들어가나 (본문 아님)', (a.captions || [])[0] === '사진 설명 한 줄'],
+    ['캡션이 본문 글자수에 섞이지 않나', a.bodyChars > 0 && a.bodyChars < 60],
     ['제목 첫 글자가 먹혀도 제목이 온전한가', f.ok === true && f.titleOnPage === '테스트 제목입니다'],
     ['제목을 고치느라 다시 쓰지는 않나', f.attempts === 1],
     ['실패 시 증거를 남기나', !!(b.hint || '').includes('증거')],

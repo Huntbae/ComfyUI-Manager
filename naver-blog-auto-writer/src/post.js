@@ -163,13 +163,39 @@ async function readDocState(root) {
     };
     const titleMod = document.querySelector(`${sel} .se-module-text`);
     const body = [...document.querySelectorAll('.se-component.se-text')].map(strip).join('\n');
+    const imgs = [...document.querySelectorAll('.se-component.se-image')];
     return {
       title: strip(document.querySelector(sel)),
       titleFlaggedEmpty: !!titleMod?.classList.contains('se-is-empty'),
       bodyChars: body.replace(/\s/g, '').length,
-      imageComponents: document.querySelectorAll('.se-component.se-image').length,
+      imageComponents: imgs.length,
+      // 사진 설명은 본문이 아니라 사진 자체의 캡션칸에 들어가야 한다
+      captions: imgs.map((el) => strip(el.querySelector('.se-caption .se-text-paragraph'))),
     };
   }, EDITOR_SEL);
+}
+
+// 사진 설명은 본문 문단이 아니라 사진 자체의 캡션칸(.se-caption)에 넣는다.
+// 본문에 치면 사진과 분리된 문단으로 남아 그림 제목처럼 보이지 않는다.
+// 사진 자체는 손대지 않고, 테두리·박스 같은 걸 두르지도 않는다.
+async function typeCaption(page, root, text, typeFn) {
+  const img = root.locator('.se-component.se-image').last();
+  if (!(await img.count().catch(() => 0))) return false;
+  // 사진을 눌러 선택해야 캡션칸이 나타난다. 선택 전에는 display:none 이라 클릭이 안 된다.
+  await img.click({ timeout: 8_000 }).catch(() => {});
+  const cap = img.locator('.se-caption .se-text-paragraph').first();
+  for (let i = 0; i < 10; i += 1) {
+    const box = await cap.boundingBox().catch(() => null);
+    if (box && box.height > 0) break;
+    await page.waitForTimeout(400);
+    if (i === 4) await img.click({ timeout: 5_000 }).catch(() => {});
+  }
+  const box = await cap.boundingBox().catch(() => null);
+  if (!box || box.height <= 0) return false;
+  await cap.click({ timeout: 5_000 }).catch(() => {});
+  await page.waitForTimeout(400); // 플레이스홀더가 걷히고 포커스가 잡힐 때까지
+  await typeFn(text);
+  return true;
 }
 
 // 다시 쓰기 전에 남은 찌꺼기를 지운다. 안 지우면 지난 시도의 조각 위에 덧쓴다.
@@ -242,7 +268,7 @@ async function readSaveState(root) {
 }
 
 // 임시저장 — 누르고 끝내지 않고 저장됐는지 확인한다. 발행 버튼은 절대 누르지 않는다.
-async function tempSave(page, root) {
+async function tempSave(page, root, maxWaitMs = 20_000) {
   await closeHelpPanel(page, root);
   const before = await readSaveState(root);
 
@@ -259,7 +285,7 @@ async function tempSave(page, root) {
   }
 
   // 저장 확인: (1) 저장 개수 증가 (2) 저장 완료 안내 문구 — 둘 중 하나면 성공
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await page.waitForTimeout(1_000);
     const after = await readSaveState(root);
@@ -287,10 +313,10 @@ const IMG_MARKER = /^\s*\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*
 
 // 다시 시도할 가치가 있는 실패 — 에디터가 리로드돼 내용이 날아간 부류.
 // 저장 실패는 여기 넣지 않는다 (이미 저장됐을 수도 있어 다시 쓰면 초안이 중복된다).
-const RETRYABLE = new Set(['editor_reloaded', 'content_lost', 'title_empty', 'image_not_attached', 'title_mismatch', 'fill_error']);
+const RETRYABLE = new Set(['editor_reloaded', 'content_lost', 'title_empty', 'image_not_attached', 'title_mismatch', 'caption_mismatch', 'caption_box_missing', 'fill_error']);
 
 // 제목·본문·이미지를 한 번 채우고 저장까지 한다.
-async function fillOnce(page, { title, content, images = [], imagedir = '' }) {
+async function fillOnce(page, { title, content, images = [], imagedir = '', stampBefore = null }) {
   const { root, where } = await resolveEditor(page);
   if (!root) {
     const dir = await dumpEvidence(page, null, `no-editor-${stamp()}`);
@@ -369,6 +395,7 @@ async function fillOnce(page, { title, content, images = [], imagedir = '' }) {
     const used = new Set();
     let imagesInserted = 0;
     let expectedChars = 0;
+    const wantCaptions = [];
     // 스마트에디터는 마크다운을 해석하지 않는다. 그대로 치면 본문에
     // **굵게** 와 |---|---| 가 문자로 찍히므로 평문으로 바꿔서 넣는다.
     for (const rawLine of markdownToPlain(content).split('\n')) {
@@ -383,10 +410,20 @@ async function fillOnce(page, { title, content, images = [], imagedir = '' }) {
         imagesInserted += 1;
         used.add(path.basename(imgPath));
         if (m[2]) {
-          expectedChars += m[2].replace(/\s/g, '').length;
-          await typeGuarded(m[2], focusBody);
-          if (await guardPopup(root)) await focusBody();
-          await page.keyboard.press('Enter');
+          const want = m[2].replace(/\s+/g, ' ').trim();
+          wantCaptions.push(want);
+          const capBox = root.locator('.se-component.se-image').last()
+            .locator('.se-caption .se-text-paragraph').first();
+          const ok = await typeCaption(page, root, m[2], async (txt) => {
+            await typeGuarded(txt, async () => { await capBox.click({ timeout: 5_000 }).catch(() => {}); });
+          });
+          if (!ok) {
+            const dir = await dumpEvidence(page, root, `caption-box-missing-${stamp()}`);
+            return { ok: false, reason: 'caption_box_missing', hint: `사진 캡션칸을 찾지 못했습니다. 증거: ${dir}` };
+          }
+          await focusBody(); // 다음 문단은 다시 본문에
+        } else {
+          wantCaptions.push('');
         }
         continue;
       }
@@ -423,6 +460,14 @@ async function fillOnce(page, { title, content, images = [], imagedir = '' }) {
     if (filled.imageComponents < imagesInserted) {
       return fail('image_not_attached', `사진 ${imagesInserted}장을 넣었는데 ${filled.imageComponents}장만 붙었습니다.`);
     }
+    // 설명이 캡션칸에 제대로 들어갔는지 (본문으로 새면 여기서 걸린다)
+    const gotCaptions = filled.captions || [];
+    for (let n = 0; n < wantCaptions.length; n += 1) {
+      if (wantCaptions[n] && gotCaptions[n] !== wantCaptions[n]) {
+        return fail('caption_mismatch',
+          `${n + 1}번째 사진 설명이 캡션칸에 안 들어갔습니다. 원고: "${wantCaptions[n]}" / 캡션칸: "${gotCaptions[n] || ''}".`);
+      }
+    }
     // 리로드로 앞부분이 통째로 날아가는 사고를 여기서 잡는다 (예전엔 그대로 저장됐다).
     if (expectedChars && filled.bodyChars < Math.floor(expectedChars * 0.8)) {
       return fail('content_lost', `본문 ${expectedChars}자를 쳤는데 ${filled.bodyChars}자만 남아 있습니다.`);
@@ -431,13 +476,25 @@ async function fillOnce(page, { title, content, images = [], imagedir = '' }) {
       return fail('editor_reloaded', '타이핑 도중 에디터가 리로드됐습니다.');
     }
 
-    const saved = await tempSave(page, root);
+    // 초안을 그 자리에서 고칠 때는 임시저장 개수가 늘지 않는다.
+    // 그때는 목록에 찍힌 저장 시각이 바뀌었는지로 저장 여부를 확인한다.
+    const saved = await tempSave(page, root, stampBefore ? 8_000 : 20_000);
+    if (!saved.ok && stampBefore) {
+      const afterStamp = await readDraftStamp(page, root, title).catch(() => null);
+      if (afterStamp && afterStamp !== stampBefore) {
+        saved.ok = true;
+        saved.how = `저장시각 ${stampBefore} → ${afterStamp}`;
+      } else {
+        saved.reason = 'save_not_confirmed';
+        saved.hintExtra = `저장시각이 그대로입니다 (${stampBefore} → ${afterStamp || '읽기 실패'}).`;
+      }
+    }
     const dir = await dumpEvidence(page, root, `${saved.ok ? 'ok' : 'save-failed'}-${stamp()}`);
     if (!saved.ok) {
       return {
         ok: false,
         reason: saved.reason,
-        hint: `저장을 확인하지 못했습니다 (저장버튼: "${saved.before?.text || '?'}" → "${saved.after?.text || '?'}"). 증거: ${dir}`,
+        hint: `저장을 확인하지 못했습니다 (저장버튼: "${saved.before?.text || '?'}" → "${saved.after?.text || '?'}"). ${saved.hintExtra || ''} 증거: ${dir}`,
         evidence: dir,
       };
     }
@@ -446,6 +503,7 @@ async function fillOnce(page, { title, content, images = [], imagedir = '' }) {
       where,
       imagesInserted,
       imageComponents: filled.imageComponents,
+      captions: filled.captions,
       titleOnPage: filled.title,
       bodyChars: filled.bodyChars,
       verifiedBy: saved.how,
@@ -464,13 +522,19 @@ async function fillEditor(page, opts) {
   for (let i = 1; i <= attempts; i += 1) {
     if (i > 1) {
       console.log(`   ↻ ${i}/${attempts}번째 시도 — 에디터를 새로 열고 처음부터 다시 씁니다 (${last.reason}: ${last.hint || ''}).`);
-      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-      await page.waitForTimeout(2_000);
-      const { root } = await resolveEditor(page);
-      if (root) {
-        await dismissRecoveryPopup(root);
-        await guardPopup(root);
-        await clearDocument(page, root);
+      if (opts.reopen) {
+        // 초안 수정 모드 — 새 글을 만들지 않도록 그 초안을 다시 연다
+        const re = await opts.reopen();
+        if (!re.ok) return { ...re, attempts: i };
+      } else {
+        await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+        await page.waitForTimeout(2_000);
+        const { root } = await resolveEditor(page);
+        if (root) {
+          await dismissRecoveryPopup(root);
+          await guardPopup(root);
+          await clearDocument(page, root);
+        }
       }
     }
     try {
@@ -558,4 +622,129 @@ async function writePostProfile({
   }
 }
 
-module.exports = { writePost, writePostProfile, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl };
+
+// ── 저장된 초안을 그 자리에서 고치기 ──────────────────────────────────
+// 사진 설명을 캡션칸으로 옮기려고 글을 새로 올리면 초안이 두 배로 쌓인다.
+// 그래서 저장된 초안을 열어 같은 자리에 다시 쓴다.
+// 위험한 동작이다 — 엉뚱한 초안을 열면 다른 글을 덮어쓴다.
+// 목록에서 제목이 정확히 일치하는 줄만 누르고, 연 다음 제목을 한 번 더 대조한다.
+
+async function openDraftList(page, root) {
+  await root.evaluate(() => {
+    document.querySelector('[data-click-area*="s.count"], [class*="save_count_btn"]')?.click();
+  }).catch(() => {});
+  await page.waitForTimeout(2_500);
+}
+
+async function closeDraftList(page, root) {
+  await root.evaluate(() => {
+    const btn = [...document.querySelectorAll('button')]
+      .find((b) => /닫기|close/i.test(b.getAttribute('aria-label') || b.className || ''));
+    btn?.click();
+  }).catch(() => {});
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(800);
+}
+
+// 목록에서 이 제목의 줄과 저장 시각을 읽는다. 없으면 null.
+async function findDraftRow(root, title) {
+  return root.evaluate((w) => {
+    const re = /(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2})/;
+    const norm = (e) => (e.innerText || '').replace(/\s+/g, ' ').trim();
+    const rows = [...document.querySelectorAll('*')]
+      .filter((e) => { const t = norm(e); return t.includes(w) && re.test(t) && t.length < 200; })
+      .sort((a, b) => norm(a).length - norm(b).length);
+    if (!rows.length) return null;
+    const t = norm(rows[0]);
+    return { text: t.slice(0, 120), stamp: (t.match(re) || [])[1] || null };
+  }, title.replace(/\s+/g, ' ').trim());
+}
+
+// 목록을 열어 이 제목의 저장 시각만 확인하고 닫는다 (저장됐는지 판정용).
+async function readDraftStamp(page, root, title) {
+  await openDraftList(page, root);
+  const row = await findDraftRow(root, title).catch(() => null);
+  await closeDraftList(page, root);
+  return row ? row.stamp : null;
+}
+
+async function openDraftByTitle(page, root, title) {
+  const want = title.replace(/\s+/g, ' ').trim();
+  await openDraftList(page, root);
+  const clicked = await root.evaluate((w) => {
+    const re = /\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}/;
+    const norm = (e) => (e.innerText || '').replace(/\s+/g, ' ').trim();
+    const rows = [...document.querySelectorAll('*')]
+      .filter((e) => { const t = norm(e); return t.includes(w) && re.test(t) && t.length < 200; })
+      .sort((a, b) => norm(a).length - norm(b).length);
+    if (!rows.length) return null;
+    const hit = rows[0];
+    (hit.querySelector('a, button') || hit.closest('a, button, li') || hit).click();
+    return norm(hit).slice(0, 120);
+  }, want).catch(() => null);
+  if (!clicked) return { ok: false, reason: 'draft_not_found', hint: `임시저장 목록에 「${want}」 가 없습니다.` };
+
+  await page.waitForTimeout(3_500);
+  await guardPopup(root);
+  // 연 글이 정말 그 글인지 대조한다. 다르면 아무것도 건드리지 않고 멈춘다.
+  const st = await readDocState(root).catch(() => null);
+  if (!st || st.title !== want) {
+    return {
+      ok: false,
+      reason: 'wrong_draft_opened',
+      hint: `열린 글의 제목이 다릅니다. 기대: "${want}" / 열린 글: "${st ? st.title : '읽기 실패'}". 덮어쓰지 않고 멈췄습니다.`,
+    };
+  }
+  return { ok: true, row: clicked, before: st };
+}
+
+// 저장된 초안을 열어 같은 자리에 다시 쓴다. 새 초안을 만들지 않는다.
+async function editDraftProfile({
+  blogId, title, content, images = [], imagedir = '', headful = true, record = false, keepOpen = false,
+}) {
+  const { launchPersistent } = require('./browser');
+  const { context } = await launchPersistent({ headful, record });
+  const page = context.pages()[0] || (await context.newPage());
+  try {
+    let stampBefore = null;
+    // 초안을 열고 내용을 비운다. 재시도할 때도 같은 절차를 다시 밟는다.
+    const open = async () => {
+      await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
+      if (page.url().includes('nidlogin')) {
+        return { ok: false, reason: 'need_login', hint: 'node index.js login 으로 이 프로필에 네이버 로그인을 한 번 해주세요' };
+      }
+      const { root } = await resolveEditor(page);
+      if (!root) return { ok: false, reason: 'editor_not_found', hint: '에디터를 찾지 못했습니다.' };
+      await dismissRecoveryPopup(root);
+      for (let i = 0; i < 8; i += 1) {
+        if (await guardPopup(root)) break;
+        await page.waitForTimeout(1_000);
+      }
+      const opened = await openDraftByTitle(page, root, title);
+      if (!opened.ok) return opened;
+      const row = await (async () => { await openDraftList(page, root); const r = await findDraftRow(root, title); await closeDraftList(page, root); return r; })();
+      stampBefore = row ? row.stamp : stampBefore;
+      if (!(await clearDocument(page, root))) {
+        return { ok: false, reason: 'clear_failed', hint: '초안 내용을 비우지 못했습니다. 덮어쓰지 않고 멈췄습니다.' };
+      }
+      return { ok: true };
+    };
+
+    const first = await open();
+    if (!first.ok) return { ...first, saved: false, published: false };
+
+    const r = await fillEditor(page, { title, content, images, imagedir, reopen: open, stampBefore });
+    if (keepOpen) {
+      console.log('\n--keep-open: 창을 열어둡니다. 확인 후 Enter.');
+      await new Promise((res) => process.stdin.once('data', res));
+    }
+    return { ...r, saved: r.ok, published: false };
+  } catch (e) {
+    const dir = await dumpEvidence(page, null, `edit-error-${stamp()}`);
+    return { ok: false, reason: 'error', hint: `${String(e.message).split('\n')[0]} / 증거: ${dir}` };
+  } finally {
+    await context.close();
+  }
+}
+
+module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl };
