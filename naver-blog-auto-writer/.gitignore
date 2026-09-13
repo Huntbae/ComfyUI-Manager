@@ -8,3 +8,7 @@ images_prev/
 # 진행 기록은 기기 간 공유해야 한다 (맥북/아이맥이 같은 지점에서 이어가도록).
 # 리포 루트 .gitignore 의 *.json 규칙에 걸리므로 여기서 되살린다.
 !state/progress.json
+
+# 카드 원본 백업 — 되돌릴 때만 쓰는 로컬 사본이라 공유하지 않는다.
+# 원본은 git 이력에도 남아 있다 (images/ 는 추적 중).
+images_card/
