@@ -26,7 +26,10 @@ kart 사용법 (어느 폴더에서든 실행 가능)
     kart daily [시] [분] 매일 자동 (off / status / run)
 
   자료
-    kart images [옵션]   사진 다시 모으기
+    kart images [옵션]   사진 다시 모으기 (외장 드라이브 자동 인식)
+      --scan-only        어떤 폴더에 몇 장이 있는지만 확인
+      --dry-run          어느 사진이 어느 편에 들어갈지만 확인
+      --src <경로>       볼 폴더를 직접 추가
     kart history         역사 사진 내려받기 (출처 자동 표기)
     kart topic           유튜브에서 글감 선정
 

@@ -2,8 +2,16 @@ node_modules/
 .auth/
 out/
 .chrome-profile/
-images_src/
+# images_src/ 자체가 아니라 그 '안'을 막는다.
+# 폴더째 막으면 git 이 안으로 내려가지 않아 아래 예외가 먹지 않는다.
+images_src/*
 images_prev/
+
+# 예외 — 대화로 직접 올려주신 칼리 실차 사진. 이 컨테이너에만 있는 유일본이라
+# 공유하지 않으면 사라진다. 맥에서 pull 하면 0단계(직접 넣음)로 가장 먼저 쓰인다.
+!images_src/kalli/
+images_src/kalli/*
+!images_src/kalli/*.jpg
 
 # 진행 기록은 기기 간 공유해야 한다 (맥북/아이맥이 같은 지점에서 이어가도록).
 # 리포 루트 .gitignore 의 *.json 규칙에 걸리므로 여기서 되살린다.

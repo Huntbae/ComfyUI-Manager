@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-구글 드라이브(맥에 마운트된 CloudStorage)에서 제품 사진을 모아
+구글 드라이브·외장 드라이브·로컬 작업폴더에서 제품 사진을 모아
 images/ 를 다시 채우고, articles/ 의 [[img:...]] 마커를 겹치지 않게 재배정한다.
+
+외장 드라이브는 /Volumes 아래에서 자동으로 찾는다 (--src 를 안 써도 된다).
+HEIC·RAW(ARW·CR3·NEF·DNG …)도 macOS 에서는 함께 쓴다.
+같은 사진이 다른 이름·다른 폴더에 있어도 내용 기준으로 한 번만 쓴다.
 
 사진은 3단계로 넓혀가며 찾는다. 앞 단계로 채워지면 다음 단계는 실행하지 않는다.
   1단계 정밀 — 파일명·폴더명이 제품과 직접 맞는 것
@@ -16,6 +20,7 @@ Pillow가 있으면 쓰고, 없으면 macOS 기본 도구 sips로 넘어간다(�
 둘 다 없으면 원본을 복사한다.
 
 사용법:
+    python3 scripts/rebuild_images.py --scan-only # 어느 폴더에 몇 장이 있는지만 확인
     python3 scripts/rebuild_images.py --dry-run   # 무엇을 쓸지·어떤 스타일일지 확인만
     python3 scripts/rebuild_images.py             # 수집 + 편별 스타일 + 마커 재배정
     python3 scripts/rebuild_images.py --no-style  # 스타일 없이 가로폭만
@@ -25,6 +30,7 @@ Ver.5 사진을 따로 갖고 계시면 images_src/edukart_v5/ 에 넣어두면 
 """
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -47,7 +53,25 @@ LOCAL_SRC = ROOT / "images_src"          # 사용자가 직접 넣어두는 추�
 # 손대지 않은 원본 보관소. --from-existing 은 여기서만 읽는다.
 # 생성된 images/ 를 다시 원본으로 쓰면 크롭·보정이 누적돼 화면이 점점 확대된다.
 MASTER = ROOT / "images_master"
-IMG_EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+# 확장자는 소문자로만 적고, 비교할 때 소문자로 바꿔서 본다.
+# 예전에는 {".jpg", ".JPG", ...} 처럼 대소문자를 일일이 넣었는데
+# 외장 드라이브에는 .Jpg · .JPeg 같은 표기도 섞여 있어서 그대로 누락됐다.
+IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp", ".gif"}
+# 애플 기기 사진. Pillow 로는 못 열지만 macOS sips 가 처리한다.
+HEIC_EXTS = {".heic", ".heif"}
+# 카메라 원본(RAW). 외장 사진 드라이브의 상당수가 여기 들어 있다.
+RAW_EXTS = {".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".orf", ".rw2", ".srw"}
+# sips 는 macOS 에만 있다. 있을 때만 HEIC·RAW 를 후보에 넣는다 —
+# 변환할 수 없는 파일을 후보로 잡으면 그 자리가 빈 칸으로 남는다.
+HAS_SIPS = shutil.which("sips") is not None
+if HAS_SIPS:
+    IMG_EXTS |= HEIC_EXTS | RAW_EXTS
+
+# 외장 드라이브·백업 폴더에 항상 따라다니는 시스템 폴더. 들어가 봐야 시간만 쓴다.
+SKIP_DIRS = {
+    "__MACOSX", "System Volume Information", "$RECYCLE.BIN",
+    "RECYCLER", "lost+found", "node_modules",
+}
 # [[img:파일명]] 또는 [[img:파일명|사진 설명]]
 MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]", re.I)
 
@@ -151,10 +175,42 @@ def find_roots(extra=()):
             for label, sub in DRIVE_SUBROOTS:
                 add(f"{label} ({acct})", entry / sub)
 
+    for label, path in external_volumes():
+        add(label, path)
+
     for rel in LOCAL_CANDIDATES:
         add("로컬 작업폴더", Path.home() / rel)
 
     return roots
+
+
+def external_volumes():
+    """연결된 외장 드라이브를 찾는다. [(표시이름, 경로), ...]
+
+    macOS 는 외장 디스크를 /Volumes/<이름> 에 붙인다. 부팅 디스크와
+    시스템이 만든 마운트는 빼고, 사용자가 꽂은 것만 돌려준다.
+    이걸 자동으로 잡아주지 않으면 매번 --src '/Volumes/…' 를 손으로 쳐야 한다.
+    """
+    vols = Path("/Volumes")
+    if not vols.is_dir():
+        return []
+    try:
+        root_dev = Path("/").stat().st_dev
+    except OSError:
+        root_dev = None
+    out = []
+    for entry in sorted(vols.iterdir()):
+        try:
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            # 부팅 디스크는 /Volumes 아래에도 보이지만 같은 장치다
+            if root_dev is not None and entry.stat().st_dev == root_dev:
+                continue
+            next(entry.iterdir(), None)   # 읽을 수 있는지 확인
+        except OSError:
+            continue                       # 권한 없음 · 응답 없는 네트워크 볼륨
+        out.append((f"외장 드라이브 · {entry.name}", entry))
+    return out
 
 
 def find_drive_root():
@@ -163,23 +219,86 @@ def find_drive_root():
     return roots[0][1] if roots else None
 
 
-def walk_images(root, max_depth=8):
-    """root 아래 이미지 파일을 훑는다. 심볼릭 링크는 따라가지 않는다."""
+def walk_images(root, max_depth=14):
+    """root 아래 이미지 파일을 훑는다. 심볼릭 링크는 따라가지 않는다.
+
+    깊이 기본값이 8이던 시절에는 외장 사진 드라이브가 반쯤만 읽혔다.
+    `연도/행사/촬영일/카드/DCIM/100MSDCF` 처럼 파고드는 구조가 흔해서다.
+    """
     root = Path(root)
     base_depth = len(root.parts)
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         if len(Path(dirpath).parts) - base_depth >= max_depth:
             dirnames[:] = []
-        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        dirnames[:] = [d for d in dirnames
+                       if not d.startswith(".") and d not in SKIP_DIRS]
         for fn in filenames:
-            if Path(fn).suffix in IMG_EXTS:
+            if Path(fn).suffix.lower() in IMG_EXTS:
                 yield Path(dirpath) / fn
+
+
+_SCAN_CACHE = {}
+SCAN_COUNTS = []        # [(표시이름, 찾은 장수), ...] — 실행 결과에 그대로 보여준다
+
+
+def scan_roots(roots):
+    """루트들을 한 번만 훑어 이미지 경로를 모은다. 폴더별 장수도 기록한다.
+
+    제품별로 collect_tiered 가 두 번 불린다. 외장 드라이브를 두 번 훑으면
+    그만큼 두 배로 기다려야 해서, 결과를 캐시해 두고 재사용한다.
+    """
+    key = tuple(str(r) for _l, r in roots)
+    if key in _SCAN_CACHE:
+        return _SCAN_CACHE[key]
+    all_images, counts = [], []
+    for label, root in roots:
+        found = list(walk_images(root))
+        counts.append((f"{label} — {root}", len(found)))
+        all_images.extend(found)
+    _SCAN_CACHE[key] = all_images
+    SCAN_COUNTS[:] = counts
+    return all_images
 
 
 def is_junk(path):
     """서류·판촉물·개인정보처럼 블로그에 쓸 수 없는 파일인가."""
     full = str(path).lower()
     return any(x.lower() in full for x in JUNK)
+
+
+def image_size(path):
+    """(가로, 세로) 를 돌려준다. 알 수 없으면 None.
+
+    Pillow 는 HEIC·RAW 를 못 연다. 그걸 '읽기 실패 = 탈락' 으로 처리하면
+    아이폰 사진과 카메라 원본이 통째로 버려진다. 그래서 sips 로 한 번 더 묻는다.
+    """
+    if Image is not None:
+        try:
+            with Image.open(path) as im:
+                return im.size
+        except Exception:
+            pass
+    if not HAS_SIPS:
+        return None
+    try:
+        out = subprocess.run(
+            ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
+            capture_output=True, text=True, timeout=20,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    dims = {}
+    for line in out.splitlines():
+        k, _, v = line.partition(":")
+        k = k.strip()
+        if k in ("pixelWidth", "pixelHeight"):
+            try:
+                dims[k] = int(v.strip())
+            except ValueError:
+                return None
+    if "pixelWidth" in dims and "pixelHeight" in dims:
+        return dims["pixelWidth"], dims["pixelHeight"]
+    return None
 
 
 def passes_quality(path):
@@ -189,13 +308,10 @@ def passes_quality(path):
             return False
     except OSError:
         return False
-    if Image is None:
-        return True  # Pillow가 없으면 크기 기준만으로 통과
-    try:
-        with Image.open(path) as im:
-            w, h = im.size
-    except Exception:
-        return False
+    size = image_size(path)
+    if size is None:
+        return Image is None and not HAS_SIPS  # 둘 다 없으면 크기 기준만으로 통과
+    w, h = size
     if w < SWEEP_MIN_WIDTH:
         return False
     ratio = w / h if h else 0
@@ -226,17 +342,17 @@ def collect_tiered(kind, roots, need, sweep=True):
         return dedupe(found), tier_of
 
     # 폴더가 크다. 한 번만 훑고 재사용한다.
-    all_images = []
-    for _label, root in roots:
-        all_images.extend(walk_images(root))
+    all_images = scan_roots(roots)
 
     # 1단계 — 정밀
     if kind == "edukart":
         hits = [p for p in all_images
                 if any(h.lower() in p.name.lower() for h in EDUKART_HINTS)]
     else:
+        # 대소문자를 가리지 않는다. 외장 드라이브에는 KALLI · Kalli · kalli 가 섞여 있다.
+        low_hints = [h.lower() for h in KALLI_DIR_HINTS]
         hits = [p for p in all_images
-                if any(h in str(p) for h in KALLI_DIR_HINTS)]
+                if any(h in str(p).lower() for h in low_hints)]
     add(hits, "1단계 정밀")
     if len(dedupe(found)) >= need:
         return dedupe(found), tier_of
@@ -278,17 +394,40 @@ def collect_tiered(kind, roots, need, sweep=True):
     return dedupe(found), tier_of
 
 
+def _content_key(p, _cache={}):
+    """내용 기준 지문. 크기 + 앞뒤 64KB 해시.
+
+    사진 드라이브에는 같은 사진이 다른 이름으로 여러 폴더에 들어 있는 경우가 흔하다.
+    파일명으로만 비교하면 그게 안 걸러져 같은 사진이 여러 편에 실린다.
+    전체를 해시하면 드라이브가 클 때 너무 느려서 앞뒤 조각만 읽는다.
+    """
+    key = str(p)
+    if key in _cache:
+        return _cache[key]
+    try:
+        size = p.stat().st_size
+        h = hashlib.md5()
+        h.update(str(size).encode())
+        with open(p, "rb") as f:
+            h.update(f.read(65536))
+            if size > 131072:
+                f.seek(-65536, os.SEEK_END)
+                h.update(f.read(65536))
+        out = h.hexdigest()
+    except OSError:
+        out = None
+    _cache[key] = out
+    return out
+
+
 def dedupe(paths):
-    """같은 내용(크기+파일명)의 중복을 제거하고 순서를 유지한다."""
+    """같은 사진을 한 번만 남기고 순서를 유지한다 (내용 기준)."""
     seen, out = set(), []
     for p in paths:
-        try:
-            key = (p.name, p.stat().st_size)
-        except OSError:
+        k = _content_key(p)
+        if k is None or k in seen:
             continue
-        if key in seen:
-            continue
-        seen.add(key)
+        seen.add(k)
         out.append(p)
     return out
 
@@ -567,6 +706,8 @@ def main():
                     help="스타일 적용 없이 가로폭만 맞춘다")
     ap.add_argument("--src", action="append", default=[], metavar="경로",
                     help="검색할 폴더를 직접 추가한다 (여러 번 쓸 수 있음)")
+    ap.add_argument("--scan-only", action="store_true",
+                    help="어떤 폴더에서 몇 장이 잡히는지만 보고 끝낸다 (변환·재배정 없음)")
     ap.add_argument("--no-sweep", action="store_true",
                     help="3단계(드라이브 전체 훑기)를 하지 않는다. 제품 사진만 쓴다")
     ap.add_argument("--from-existing", action="store_true",
@@ -648,6 +789,25 @@ def main():
         for label, r in roots:
             print(f"  [{label}] {r}")
 
+    if args.scan_only:
+        all_images = scan_roots(roots)
+        print("\n폴더별 사진 수:")
+        for label, n in SCAN_COUNTS:
+            print(f"  {n:>6,}장  {label}")
+        print(f"  {len(all_images):>6,}장  합계")
+        from collections import Counter
+        exts = Counter(p.suffix.lower() for p in all_images)
+        print("\n형식별:")
+        for ext, n in exts.most_common():
+            print(f"  {n:>6,}장  {ext}")
+        uniq = len(dedupe(all_images))
+        print(f"\n내용 기준 서로 다른 사진: {uniq:,}장 "
+              f"(같은 사진 중복 {len(all_images) - uniq:,}장은 한 번만 씁니다)")
+        if not HAS_SIPS:
+            print("\n⚠️  sips 가 없어 HEIC·RAW 는 후보에서 빠집니다. "
+                  "맥에서 실행하면 함께 잡힙니다.")
+        return
+
     print("사진을 찾는 중입니다. 드라이브 크기에 따라 1~2분 걸릴 수 있습니다...")
     print("  (1단계 정밀 → 모자라면 2단계 확장 → 그래도 모자라면 드라이브 전체)")
     sweep = not args.no_sweep
@@ -658,6 +818,14 @@ def main():
         from collections import Counter
         c = Counter(tiers.get(p, "?") for p in paths)
         return ", ".join(f"{k} {v}장" for k, v in c.items()) or "없음"
+
+    if SCAN_COUNTS:
+        print("\n훑은 결과 — 폴더별 사진 수:")
+        for label, n in SCAN_COUNTS:
+            print(f"  {n:>6,}장  {label}")
+        print(f"  {sum(n for _l, n in SCAN_COUNTS):>6,}장  합계"
+              f"{'' if HAS_SIPS else '  (sips 없음 — HEIC·RAW 는 세지 않았습니다)'}")
+        print()
 
     print(f"  에듀카트 후보 {len(edu)}장 / 필요 {need_edu}장  ({by_tier(edu)})")
     print(f"  칼리 후보 {len(kal)}장 / 필요 {need_kal}장  ({by_tier(kal)})")

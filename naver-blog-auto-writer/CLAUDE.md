@@ -124,6 +124,10 @@ post.js 를 고쳤으면 반드시 `npm test` 를 돌린다.
   출처가 안 채워진 채로는 절대 올리지 않는다 (남의 사진 무단 게시 방지).
 - 사진이 모자라면 `python3 scripts/rebuild_images.py` 로 다시 모은다. 내 드라이브·공유 드라이브·
   공유 문서함·로컬 Work Files를 모두 훑고, 모자라면 단계적으로 범위를 넓힌다 (`SERIES.md` 참고).
+- **외장 드라이브는 꽂혀 있으면 자동으로 함께 훑는다** (`/Volumes` 아래, 부팅 디스크 제외).
+  `--src` 는 이제 보조 수단이다. HEIC·RAW(ARW·CR3·NEF·DNG …)도 맥에서는 후보에 들어간다.
+  무엇이 얼마나 잡히는지는 `kart images --scan-only` 로 먼저 본다.
+  같은 사진이 다른 이름·다른 폴더에 있어도 **내용 기준**으로 한 번만 쓴다.
 - 이미지가 안 들어가면 `images/` 파일 존재와 `config.json`의 `imagedir`를 확인.
   `next`는 실행 전에 사진 존재를 점검하고, 없으면 멈춘다 (사진 없이 글만 올라가는 사고 방지).
 
@@ -160,7 +164,7 @@ kart status / reset / login / topic            # node index.js ...
 kart retry                                     # 막힌 지점 진단하며 단계적 재시도
 kart doctor                                    # 에디터 구조 덤프 (셀렉터 점검)
 kart test                                      # 가짜 에디터로 로직 검증
-kart images [--dry-run|--no-sweep|--src 경로]  # 사진 다시 모으기
+kart images [--scan-only|--dry-run|--no-sweep|--src 경로]  # 사진 다시 모으기
 kart history                                   # 역사 사진 내려받기(출처 자동 표기)
 kart daily [시] [분] / off / status / run      # 매일 한 편 자동 임시저장
 kart check / ffmpeg / frames                   # 환경 점검·녹화
