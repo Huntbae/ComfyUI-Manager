@@ -578,16 +578,28 @@ def main():
     if not arts:
         sys.exit(f"원고가 없습니다: {ARTICLES}")
 
-    # 각 원고가 필요한 이미지 수를 마커 개수로 센다
+    # 각 마커가 어느 제품을 요구하는지는 마커 자신이 말하고 있다.
+    # 예전에는 원고 파일명으로 추측했는데(`"edukart" in path.name`),
+    # 파일명에 제품이 안 들어간 시리즈에서는 전부 칼리로 몰려 한쪽만 채워졌다.
     needs = []
     for path in arts:
         text = path.read_text(encoding="utf-8")
-        n = len(MARKER.findall(text))
-        product = "edukart" if "edukart" in path.name else "kalli"
-        needs.append((path, product, n))
+        prods = []
+        for name, _cap in MARKER.findall(text):
+            low = name.lower()
+            if low.startswith("edukart"):
+                prods.append("edukart")
+            elif low.startswith("kalli"):
+                prods.append("kalli")
+            elif low.startswith("hist"):
+                prods.append("hist")      # 역사 사진은 fetch_history_images.py 담당. 건드리지 않는다
+            else:
+                # 이름 규칙이 없는 예전 원고 — 파일명으로 추측하던 옛 방식으로 폴백
+                prods.append("edukart" if "edukart" in path.name else "kalli")
+        needs.append((path, prods))
 
-    need_edu = sum(n for _, p, n in needs if p == "edukart")
-    need_kal = sum(n for _, p, n in needs if p == "kalli")
+    need_edu = sum(p.count("edukart") for _, p in needs)
+    need_kal = sum(p.count("kalli") for _, p in needs)
 
     if args.from_existing:
         # 드라이브를 쓸 수 없을 때의 임시 방편.
@@ -684,9 +696,13 @@ def finish(needs, edu, kal, args, tiers=None):
     # 배정: 원고 순서대로 앞에서부터 하나씩 꺼내 쓴다 (재사용 없음)
     plan, used = [], set()
     ei = ki = 0
-    for path, product, n in needs:
+    for path, prods in needs:
         picks = []
-        for _ in range(n):
+        for product in prods:
+            if product == "hist":
+                # 역사 사진 자리. 이 스크립트가 배정하지 않고 원래 마커를 그대로 둔다.
+                picks.append(("keep", None))
+                continue
             if product == "edukart":
                 src = edu[ei] if ei < len(edu) else None
                 ei += 1
@@ -706,11 +722,12 @@ def finish(needs, edu, kal, args, tiers=None):
 
     print()
     for i, (path, picks) in enumerate(plan):
-        names = ", ".join(d or "(없음)" for _, d in picks)
+        names = ", ".join(
+            ("(역사사진 유지)" if s == "keep" else (d or "(없음)")) for s, d in picks)
         st = "스타일 없음" if args.no_style else styles.style_for(i)["name"]
         print(f"  {path.name} [{st}] → {names}")
         for s, d in picks:
-            if s:
+            if s and s != "keep":
                 print(f"        {d}  ←  [{tiers.get(s, '-')}] {s}")
 
     if args.dry_run:
@@ -726,10 +743,23 @@ def finish(needs, edu, kal, args, tiers=None):
         print(f"\n기존 images/ → images_prev/ 로 보관했습니다.")
     IMAGES.mkdir(parents=True, exist_ok=True)
 
+    # 역사 사진과 출처 목록은 이 스크립트 소관이 아니다. 새 images/ 로 되돌려 놓는다.
+    # 이게 없으면 사진을 다시 모을 때마다 hist_*.jpg 가 사라져 그 편들이 게시를 못 한다.
+    backup = ROOT / "images_prev"
+    if backup.exists():
+        kept = 0
+        for p in list(backup.glob("hist_*")) + list(backup.glob("CREDITS_history.md")):
+            shutil.copy2(p, IMAGES / p.name)
+            kept += 1
+        if kept:
+            print(f"역사 사진·출처 {kept}개는 그대로 유지했습니다.")
+
     made = 0
     for i, (path, picks) in enumerate(plan):
         st = None if args.no_style else styles.style_for(i)
         for src, dst_name in picks:
+            if src == "keep":
+                continue          # 역사 사진은 fetch_history_images.py 가 관리한다
             if src and convert(src, IMAGES / dst_name, style=st):
                 made += 1
     spec = "가로 810px, 스타일 없음" if args.no_style else "편마다 다른 스타일"
