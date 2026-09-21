@@ -71,7 +71,26 @@ if HAS_SIPS:
 SKIP_DIRS = {
     "__MACOSX", "System Volume Information", "$RECYCLE.BIN",
     "RECYCLER", "lost+found", "node_modules",
+    # 타임머신 — 같은 사진이 날짜별 스냅샷마다 들어 있다. 수만 장을 훑고도
+    # 대부분 같은 파일이라 얻을 게 없다. 필요하면 --src 로 직접 지정하면 된다.
+    "Backups.backupdb", ".MobileBackups",
+    # 앱이 만든 이미지 창고. 아이콘·에셋·캐시가 수천 장씩 들어 있다.
+    "Caches", "Cache", "Application Support", "Containers",
 }
+# 폴더 이름이 이걸로 끝나면 통째로 건너뛴다. 안은 전부 앱 리소스·프록시다.
+SKIP_DIR_SUFFIXES = (
+    ".app", ".framework", ".bundle", ".plugin", ".kext",
+    ".sparsebundle", ".lrdata", ".fcpbundle", ".imovielibrary", ".theater",
+)
+# 사진 라이브러리(.photoslibrary 등)는 통째로 막지 않는다 — 원본이 그 안에 있다.
+# 다만 derivatives/thumbnails 는 같은 사진의 축소본이라 크기가 달라
+# 내용 지문으로도 안 걸러진다. 그대로 두면 같은 사진이 여러 편에 실린다.
+# 그래서 라이브러리 안에서는 원본 폴더만 본다.
+PHOTO_LIB_SUFFIXES = (
+    ".photoslibrary", ".aplibrary", ".photolibrary",
+    ".migratedaperturelibrary", ".aperturelibrary",
+)
+PHOTO_LIB_KEEP = {"originals", "Originals", "Masters", "masters"}
 # [[img:파일명]] 또는 [[img:파일명|사진 설명]]
 MARKER = re.compile(r"\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]", re.I)
 
@@ -248,8 +267,17 @@ def walk_images(root, max_depth=14):
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         if len(Path(dirpath).parts) - base_depth >= max_depth:
             dirnames[:] = []
-        dirnames[:] = [d for d in dirnames
-                       if not d.startswith(".") and d not in SKIP_DIRS]
+        here = Path(dirpath).name
+        if here.lower().endswith(PHOTO_LIB_SUFFIXES):
+            # 사진 라이브러리 안 — 원본 폴더만 남긴다
+            dirnames[:] = [d for d in dirnames if d in PHOTO_LIB_KEEP]
+        else:
+            dirnames[:] = [
+                d for d in dirnames
+                if not d.startswith(".")
+                and d not in SKIP_DIRS
+                and not d.lower().endswith(SKIP_DIR_SUFFIXES)
+            ]
         for fn in filenames:
             if Path(fn).suffix.lower() in IMG_EXTS:
                 yield Path(dirpath) / fn
