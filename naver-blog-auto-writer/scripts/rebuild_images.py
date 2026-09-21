@@ -143,12 +143,12 @@ LOCAL_CANDIDATES = [
 ]
 
 
-def find_roots(extra=()):
+def find_roots(extra=(), only_src=False):
     """사진을 찾을 최상위 폴더들을 모은다.
 
     구글 드라이브의 내 드라이브·공유 드라이브·공유 문서함을 모두 보고,
-    드라이브 밖의 Work Files 류 폴더도 후보에 넣는다.
-    --src 로 준 경로가 있으면 함께 본다.
+    연결된 외장 드라이브와 로컬 Work Files 류 폴더도 후보에 넣는다.
+    --src 로 준 경로가 있으면 함께 본다. only_src 면 그것만 본다.
     돌려주는 값: [(표시이름, 경로), ...]
     """
     roots, seen = [], set()
@@ -166,6 +166,9 @@ def find_roots(extra=()):
     for e in extra:
         add("직접 지정", e)
 
+    if only_src:
+        return prune_nested(roots)
+
     base = Path.home() / "Library" / "CloudStorage"
     if base.exists():
         for entry in sorted(base.iterdir()):
@@ -181,7 +184,22 @@ def find_roots(extra=()):
     for rel in LOCAL_CANDIDATES:
         add("로컬 작업폴더", Path.home() / rel)
 
-    return roots
+    return prune_nested(roots)
+
+
+def prune_nested(roots):
+    """다른 루트 안에 들어 있는 루트는 뺀다.
+
+    `--src '/Volumes/Mac Data/backup'` 처럼 지정하면 외장 드라이브 자동 인식이
+    `/Volumes/Mac Data` 를 따로 잡는다. 그대로 두면 backup 을 두 번 훑어
+    시간이 두 배로 들고 폴더별 장수도 부풀려진다.
+    """
+    out = []
+    for label, path in roots:
+        if any(path != other and other in path.parents for _l, other in roots):
+            continue
+        out.append((label, path))
+    return out
 
 
 def external_volumes():
@@ -706,6 +724,8 @@ def main():
                     help="스타일 적용 없이 가로폭만 맞춘다")
     ap.add_argument("--src", action="append", default=[], metavar="경로",
                     help="검색할 폴더를 직접 추가한다 (여러 번 쓸 수 있음)")
+    ap.add_argument("--only-src", action="store_true",
+                    help="--src 로 준 폴더만 본다 (드라이브 자동 인식을 끈다)")
     ap.add_argument("--scan-only", action="store_true",
                     help="어떤 폴더에서 몇 장이 잡히는지만 보고 끝낸다 (변환·재배정 없음)")
     ap.add_argument("--no-sweep", action="store_true",
@@ -778,7 +798,9 @@ def main():
         print("    드라이브 수집(옵션 없이 실행)이나 images_src/ 직접 투입을 쓰세요.")
         return finish(needs, edu, kal, args, {})
 
-    roots = find_roots(args.src)
+    if args.only_src and not args.src:
+        sys.exit("--only-src 는 --src <경로> 와 함께 써야 합니다.")
+    roots = find_roots(args.src, only_src=args.only_src)
     if not roots:
         print("⚠️  찾을 폴더가 없습니다.")
         print("    Finder에서 구글 드라이브가 연결돼 있는지 확인하세요.")
