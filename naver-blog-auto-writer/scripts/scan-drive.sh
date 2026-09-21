@@ -89,9 +89,12 @@ echo "지문 계산 중 (같은 사진 걸러내기)..."
 while IFS= read -r f; do
   sz=$(stat -f%z "$f" 2>/dev/null || stat -c%s "$f" 2>/dev/null) || continue
   [ "${sz:-0}" -lt 120000 ] && continue
-  # 크기 + 앞 64KB 해시. 전체를 읽으면 드라이브가 클 때 너무 느리다.
-  h=$(dd if="$f" bs=65536 count=1 2>/dev/null | MD5)
-  echo "$sz-$h"
+  # 지문 = 크기 + 앞 64KB + 뒤 64KB.
+  # 앞부분만 보면 헤더·EXIF가 같은 사진들이 한 장으로 합쳐진다.
+  # 전체를 읽으면 드라이브가 클 때 너무 느리다.
+  h="$sz-$(head -c 65536 "$f" 2>/dev/null | MD5)"
+  [ "$sz" -gt 131072 ] && h="$h-$(tail -c 65536 "$f" 2>/dev/null | MD5)"
+  echo "$h"
 done < "$TMP/all.txt" > "$TMP/keys.txt"
 
 BIG=$(wc -l < "$TMP/keys.txt" | tr -d ' ')
