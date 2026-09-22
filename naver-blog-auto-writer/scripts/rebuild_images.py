@@ -35,6 +35,7 @@ import os
 import re
 import shutil
 import subprocess
+import unicodedata
 import sys
 from pathlib import Path
 
@@ -116,7 +117,10 @@ KALLI_DIR_HINTS = [
 EDUKART_HINTS_WIDE = [
     "안전정비 교육", "안전정비 실습", "시범 교육", "시범교육", "실습",
     "조립", "부품", "티어다운", "아두이노", "모터", "배터리", "배선", "프레임",
-    "카트", "kart", "레이싱", "메이커", "워크숍", "워크샵",
+    "레이싱", "메이커", "워크숍", "워크샵",
+    # "카트"·"kart" 는 뺐다. 'Cyclekart' 폴더에 걸려 그 안의 사진 2,536장이
+    # 통째로 에듀카트 후보가 됐다. 칼리 행사·회의 사진이 에듀카트 자리를
+    # 채우던 원인이다. 에듀카트는 1단계의 'edukart' 계열로 잡는다.
 ]
 KALLI_HINTS_WIDE = [
     "칼리", "달리", "뉴트로", "사이클카트", "cyclekart", "마실카",
@@ -326,10 +330,24 @@ def scan_roots(roots):
     return all_images
 
 
+def norm(s):
+    """경로 비교용 정규화. 맥의 한글 파일명을 코드의 한글과 맞춘다.
+
+    macOS(APFS/HFS+)는 파일명을 NFD(자모 분리)로 저장한다. '실측확인' 이
+    ㅅ+ㅣ+ㄹ+... 로 쪼개져 들어온다. 소스코드의 한글은 NFC(조합형)이라
+    눈에는 같아 보여도 `"실측확인" in 경로` 가 False 다.
+
+    그래서 맥에서는 한글 규칙이 전부 무력화됐다 — 서류·개인정보 차단(JUNK)까지.
+    실제로 '계속 실측확인 및 연식 변경/차대번호 표기내용 설명서.JPG' 가
+    걸러지지 않고 블로그 사진 후보로 올라왔다.
+    """
+    return unicodedata.normalize("NFC", str(s)).lower()
+
+
 def is_junk(path):
     """서류·판촉물·개인정보처럼 블로그에 쓸 수 없는 파일인가."""
-    full = str(path).lower()
-    return any(x.lower() in full for x in JUNK)
+    full = norm(path)
+    return any(norm(x) in full for x in JUNK)
 
 
 def image_size(path):
@@ -413,20 +431,26 @@ def collect_tiered(kind, roots, need, sweep=True):
     # 1단계 — 정밀
     if kind == "edukart":
         hits = [p for p in all_images
-                if any(h.lower() in p.name.lower() for h in EDUKART_HINTS)]
+                if any(norm(h) in norm(p.name) for h in EDUKART_HINTS)]
     else:
         # 대소문자를 가리지 않는다. 외장 드라이브에는 KALLI · Kalli · kalli 가 섞여 있다.
-        low_hints = [h.lower() for h in KALLI_DIR_HINTS]
+        low_hints = [norm(h) for h in KALLI_DIR_HINTS]
         hits = [p for p in all_images
-                if any(h in str(p).lower() for h in low_hints)]
+                if any(h in norm(p) for h in low_hints)]
     add(hits, "1단계 정밀")
     if len(dedupe(found)) >= need:
         return dedupe(found), tier_of
 
     # 2단계 — 활동·부품 키워드까지 확장
+    # 상대 제품 폴더의 사진은 뺀다. 3단계에만 있던 방어를 여기에도 둔다 —
+    # 활동 키워드는 두 제품에 다 걸리는 말이 많아서(실습·부품·시승),
+    # 이걸 안 막으면 칼리 폴더 사진이 에듀카트 자리를 채운다.
     wide = EDUKART_HINTS_WIDE if kind == "edukart" else KALLI_HINTS_WIDE
+    other_hints = (KALLI_DIR_HINTS + KALLI_HINTS_WIDE) if kind == "edukart" \
+        else (EDUKART_HINTS + EDUKART_HINTS_WIDE)
     hits = [p for p in all_images
-            if any(h.lower() in str(p).lower() for h in wide)]
+            if any(norm(h) in norm(p) for h in wide)
+            and not any(norm(h) in norm(p) for h in other_hints)]
     add(hits, "2단계 확장")
     if len(dedupe(found)) >= need:
         return dedupe(found), tier_of
@@ -444,7 +468,7 @@ def collect_tiered(kind, roots, need, sweep=True):
     rest = [p for p in all_images
             if p not in tier_of
             and not is_junk(p)
-            and not any(h.lower() in str(p).lower() for h in other)]
+            and not any(norm(h) in norm(p) for h in other)]
     try:
         rest.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     except OSError:
