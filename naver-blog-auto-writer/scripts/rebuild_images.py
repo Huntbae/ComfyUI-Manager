@@ -510,6 +510,51 @@ def _content_key(p, _cache={}):
     return out
 
 
+# 3D 렌더·도면임을 드러내는 표시. 파일명·폴더명에서 찾는다.
+RENDER_HINTS = [
+    "랜더", "렌더", "render", "rendering", "투시", "도면", "설계도",
+    "-trans", "_trans", "transparent", "누끼", "cutout", "3d", "cad",
+    # 이 드라이브의 렌더 모음 폴더들. 안은 전부 각도별 렌더다.
+    "cyclekart_image", "jpg_rc", "jpg_rk", "png/rc", "png/rk",
+]
+# 렌더는 각도 이름으로 파일을 만든다 — A-side-down, B-front, B-iso …
+# 사진에는 이런 이름이 붙지 않는다.
+RENDER_VIEW = re.compile(
+    r"^[a-z]?[-_ ]?(side|front|back|rear|top|bottom|iso|perspective)"
+    r"([-_ ](up|down|left|right|trans|white))*$", re.I)
+
+
+def looks_rendered(path):
+    """3D 렌더·도면인가. 실사진과 구분해 뒤로 미루는 데 쓴다.
+
+    회고록 서사에 각도만 바꾼 렌더가 연달아 나오면 카탈로그처럼 보이고,
+    '실제로 만든 차'라는 신뢰가 깎인다. 실사진을 먼저 쓰고 렌더는 보조로 둔다.
+    """
+    low = norm(path)
+    if any(h in low for h in RENDER_HINTS):
+        return True
+    # 'A-perspective-down-white-trans (1).png' 처럼 끝의 사본 번호는 떼고 본다
+    stem = re.sub(r"\s*\(\d+\)\s*$", "", path.stem).strip()
+    if RENDER_VIEW.match(stem):
+        return True
+    # 투명 배경은 사진에 없다. 누끼·렌더에만 있다.
+    if Image is not None and path.suffix.lower() == ".png":
+        try:
+            with Image.open(path) as im:
+                if "A" in im.getbands():
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def photos_first(paths):
+    """실사진을 앞으로, 렌더·도면을 뒤로. 각 그룹 안의 순서는 그대로 둔다."""
+    real = [p for p in paths if not looks_rendered(p)]
+    rendered = [p for p in paths if looks_rendered(p)]
+    return real + rendered
+
+
 def dedupe(paths):
     """같은 사진을 한 번만 남기고 순서를 유지한다 (내용 기준)."""
     seen, out = set(), []
@@ -947,8 +992,9 @@ def main():
         if not args.dry_run:
             sys.exit(1)
 
-    edu = spread(edu, need_edu)
-    kal = spread(kal, need_kal)
+    # 실사진을 먼저 쓴다. 렌더·도면은 모자랄 때만 채운다.
+    edu = spread(photos_first(edu), need_edu)
+    kal = spread(photos_first(kal), need_kal)
     return finish(needs, edu, kal, args, tiers)
 
 
