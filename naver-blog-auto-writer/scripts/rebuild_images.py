@@ -207,15 +207,28 @@ def find_roots(extra=(), only_src=False):
 
 
 def prune_nested(roots):
-    """다른 루트 안에 들어 있는 루트는 뺀다.
+    """겹치는 루트를 정리한다. 직접 지정한 폴더가 우선이다.
 
     `--src '/Volumes/Mac Data/backup'` 처럼 지정하면 외장 드라이브 자동 인식이
     `/Volumes/Mac Data` 를 따로 잡는다. 그대로 두면 backup 을 두 번 훑어
     시간이 두 배로 들고 폴더별 장수도 부풀려진다.
+
+    다만 "부모를 남기고 자식을 버린다"로 하면 사용자가 좁혀 지정한 폴더가
+    자동으로 잡힌 드라이브 전체에 먹혀버린다. backup 만 보라고 했는데
+    드라이브를 통째로(구글 드라이브까지) 훑게 된다. 직접 지정이 이긴다.
     """
+    chosen = [(l, p) for l, p in roots if l == "직접 지정"]
+
     out = []
     for label, path in roots:
-        if any(path != other and other in path.parents for _l, other in roots):
+        if label != "직접 지정":
+            # 직접 지정한 폴더를 품고 있거나 그 안에 있으면 자동 루트는 뺀다
+            if any(path in c.parents or c == path or c in path.parents
+                   for _cl, c in chosen):
+                continue
+        if any(path != other and other in path.parents
+               for ol, other in roots
+               if ol == label or label != "직접 지정"):
             continue
         out.append((label, path))
     return out
@@ -228,6 +241,11 @@ def external_volumes():
     시스템이 만든 마운트는 빼고, 사용자가 꽂은 것만 돌려준다.
     이걸 자동으로 잡아주지 않으면 매번 --src '/Volumes/…' 를 손으로 쳐야 한다.
     """
+    # 애플이 만드는 시스템 볼륨. 사진이 있을 리 없고 훑어봐야 시간만 쓴다.
+    system_vols = {
+        "Recovery", "Preboot", "VM", "Update", "xarts", "iSCPreboot",
+        "Hardware", "com.apple.TimeMachine.localsnapshots",
+    }
     vols = Path("/Volumes")
     if not vols.is_dir():
         return []
@@ -237,6 +255,8 @@ def external_volumes():
         root_dev = None
     out = []
     for entry in sorted(vols.iterdir()):
+        if entry.name in system_vols:
+            continue
         try:
             if not entry.is_dir() or entry.is_symlink():
                 continue

@@ -80,8 +80,16 @@ function markDone(file) {
 function resetProgress() {
   const before = (readProgress().posted || []).length;
   // 파일을 지우지 않고 비운다. 지우면 다른 기기에서 pull 할 때 변경이 안 보인다.
+  //
+  // resetAt 은 "언제 초기화했는지"다. 이게 없으면 초기화가 전달되지 않는다 —
+  // 동기화가 두 기기의 posted 를 합집합으로 합치기 때문에, 한쪽을 비워도
+  // 다른 쪽에 남아 있던 목록이 그대로 되살아난다. 시각을 비교해
+  // 더 최근에 초기화한 쪽을 따르게 한다.
   fs.mkdirSync(path.dirname(PROGRESS_PATH), { recursive: true });
-  fs.writeFileSync(PROGRESS_PATH, JSON.stringify({ posted: [] }, null, 2));
+  fs.writeFileSync(PROGRESS_PATH, JSON.stringify({
+    posted: [],
+    resetAt: new Date().toISOString(),
+  }, null, 2));
   try { fs.unlinkSync(LEGACY_PROGRESS_PATH); } catch { /* 없으면 그만 */ }
   return before;
 }

@@ -56,13 +56,33 @@ function pullProgress() {
     const fs = require('fs');
     const local = LOCAL_PROGRESS;
     const cur = fs.existsSync(local) ? fs.readFileSync(local, 'utf8') : '{"posted":[]}';
-    const merged = [...new Set([
-      ...(JSON.parse(cur).posted || []),
-      ...(JSON.parse(remote).posted || []),
-    ])];
+    const mine = JSON.parse(cur);
+    const theirs = JSON.parse(remote);
+
+    // 보통은 합집합이 맞다 — 두 기기가 각자 올린 것을 모두 세야 한다.
+    // 그런데 합집합만 쓰면 초기화가 절대 전달되지 않는다. 한쪽에서 기록을
+    // 비워도 다른 쪽에 남은 목록이 합쳐지면서 그대로 되살아나기 때문이다.
+    // (kart reset 뒤 kart all 이 "이미 30편 다 올렸다"며 아무것도 안 하던 원인)
+    // 그래서 초기화 시각을 먼저 본다. 더 최근에 초기화한 쪽이 이긴다.
+    const mineAt = mine.resetAt || '';
+    const theirsAt = theirs.resetAt || '';
+    let posted;
+    let resetAt;
+    if (mineAt > theirsAt) {
+      posted = mine.posted || [];          // 이쪽 초기화가 더 최근
+      resetAt = mineAt;
+    } else if (theirsAt > mineAt) {
+      posted = theirs.posted || [];        // 저쪽 초기화가 더 최근
+      resetAt = theirsAt;
+    } else {
+      posted = [...new Set([...(mine.posted || []), ...(theirs.posted || [])])];
+      resetAt = mineAt;
+    }
+
     fs.mkdirSync(path.dirname(local), { recursive: true });
-    fs.writeFileSync(local, JSON.stringify({ posted: merged }, null, 2));
-    return { ok: true, count: merged.length };
+    fs.writeFileSync(local, JSON.stringify(
+      resetAt ? { posted, resetAt } : { posted }, null, 2));
+    return { ok: true, count: posted.length };
   } catch {
     // 원격에 아직 파일이 없으면(첫 실행) 그냥 진행한다
     return { ok: true, count: null, note: 'remote_empty' };

@@ -41,7 +41,16 @@ const headfulOn = () => !flag('headless');
     console.log('이제 node index.js next 를 실행하면 1편부터 다시 올라갑니다.');
     if (!flag('no-sync')) {
       const p = require('./src/sync').pushProgress('진행 기록 초기화');
-      if (p.ok) console.log('초기화를 다른 기기와 공유했습니다.');
+      if (p.ok) {
+        console.log('초기화를 다른 기기와 공유했습니다.');
+      } else {
+        // 조용히 넘기면 안 된다. 공유가 안 된 채로 all 을 돌리면
+        // 다른 기기 기록을 받아와 "이미 다 올렸다"며 아무것도 안 한다.
+        console.log(`⚠️  다른 기기와 공유하지 못했습니다 (${p.reason}).`);
+        console.log('   이 기기에서만 초기화됐습니다. 다음 실행 때 원격 기록과');
+        console.log('   맞추면서 되돌아갈 수 있으니, git 인증을 확인하거나');
+        console.log('   --no-sync 를 붙여 이 기기 기록만으로 진행하세요.');
+      }
     }
     console.log('※ 네이버에 이미 임시저장된 글은 지워지지 않습니다. 필요하면 직접 삭제하세요.');
     process.exit(0);
