@@ -548,6 +548,170 @@ def looks_rendered(path):
     return False
 
 
+# ─────────────────────────────────────────────────────────────
+# 사진이 무엇을 찍은 것인지 경로에서 읽는다.
+#
+# 예전에는 사진을 순서대로 꽂고 캡션은 원고에 손으로 쓴 것을 그대로 뒀다.
+# 그러면 "이 일곱 줄이 차의 생김새를 정한다" 밑에 컨퍼런스 단체사진이 붙는다.
+# 글·사진·설명 셋이 따로 논다. 그래서 두 가지를 바꿨다.
+#   1) 사진을 글의 주제에 맞춰 고른다
+#   2) 캡션을 그 사진에서 만들어낸다 (사진에 없는 말을 쓰지 않는다)
+PHOTO_TOPICS = [
+    ("시승", ["시승", "주행", "도로주행", "번호판 장착"]),
+    ("납품", ["납품", "출고", "인도"]),
+    ("전시", ["엑스포", "전시", "박람회", "쇼케이스", "마케팅"]),
+    ("시험", ["시험", "전자파", "실측", "계측", "인증"]),
+    ("행사", ["컨퍼런스", "포럼", "세미나", "워크샵", "워크숍", "회의", "이사회", "총회"]),
+    ("제작", ["작업", "제작", "조립", "공장", "파트너", "연구개발", "개발 관련"]),
+    ("설계", ["랜더", "렌더", "render", "디자인", "투시", "도면", "설계도",
+              "cyclekart_image", "jpg_rc", "jpg_rk", "png/rc", "png/rk", "cad", "3d"]),
+]
+# 캡션에 쓸 말. 사진이 실제로 보여주는 것만 적는다.
+TOPIC_PHRASE = {
+    "시승": "시승 현장",
+    "납품": "납품 현장",
+    "전시": "전시 현장",
+    "시험": "시험 현장",
+    "행사": "관련 행사",
+    "제작": "제작 현장",
+    "설계": "설계 단계의 외형",
+    "차량": "칼리",
+}
+
+# 원고 묶음(파일명의 가운데 토막)마다 어울리는 사진 주제. 앞에 올수록 우선.
+ARTICLE_TOPIC_PREF = {
+    "출발":  ["제작", "행사", "차량"],
+    "좌절":  ["행사", "제작", "차량"],
+    "전환":  ["제작", "설계", "차량"],
+    "분류":  ["설계", "차량", "시험"],
+    "설계":  ["설계", "제작", "차량"],
+    "인증":  ["시험", "납품", "차량"],
+    "규제":  ["행사", "시험", "차량"],
+    "배운것": ["납품", "시승", "전시", "차량"],
+    "정리":  ["시승", "전시", "차량"],
+}
+
+DATE_PAT = [
+    re.compile(r"(20\d{2})[-_. ]?(\d{2})[-_. ]?(\d{2})"),   # 20240820 / 2024-08-20
+    re.compile(r"(?<!\d)(\d{2})[.\-_](\d{2})[.\-_](\d{2})(?!\d)"),  # 22.12.08
+    re.compile(r"(?<!\d)(\d{2})(\d{2})(\d{2})(?!\d)"),      # 241016
+]
+
+
+def photo_topic(path):
+    """사진이 무엇을 찍은 것인가. 모르면 '차량'."""
+    low = norm(path)
+    for topic, words in PHOTO_TOPICS:
+        if any(norm(w) in low for w in words):
+            return topic
+    return "차량"
+
+
+def photo_when(path):
+    """사진을 찍은 때. '2024년 10월' 또는 None.
+
+    경로에 날짜가 박혀 있는 경우가 많다 — '241016 횡성 시승회', '20240820 …'.
+    사진에 없는 때를 지어내지 않으려고, 못 읽으면 None 을 돌려준다.
+    """
+    s = str(path)
+    for pat in DATE_PAT:
+        for m in pat.finditer(s):
+            a, b, c = m.groups()
+            year = int(a) if len(a) == 4 else 2000 + int(a)
+            month = int(b)
+            if 2005 <= year <= 2035 and 1 <= month <= 12:
+                return f"{year}년 {month}월"
+    return None
+
+
+def caption_for(path):
+    """사진에서 캡션을 만든다. 사진이 보여주는 것만 적는다."""
+    # images_src/ 에 직접 넣은 사진은 파일명에 설명이 들어 있다.
+    # 'kalli_실내_페달과고전압부.jpg' → '실내, 페달과 고전압부'
+    # 경로에서 읽어낸 주제보다 이쪽이 훨씬 구체적이다.
+    try:
+        if LOCAL_SRC in path.parents:
+            stem = path.stem
+            for pre in ("kalli_", "edukart_", "hist_"):
+                if stem.lower().startswith(pre):
+                    stem = stem[len(pre):]
+                    break
+            parts = [s.strip() for s in stem.split("_") if s.strip()]
+            if parts and any("\uac00" <= ch <= "\ud7a3" for ch in "".join(parts)):
+                return ", ".join(parts)
+    except (OSError, ValueError):
+        pass
+    topic = photo_topic(path)
+    phrase = TOPIC_PHRASE.get(topic, "칼리")
+    when = photo_when(path)
+    if topic == "설계":
+        return phrase                      # 렌더에 날짜를 붙이면 오해를 산다
+    if when:
+        return f"{when}, {phrase}"
+    return phrase
+
+
+# 앞서 생성했던 머리말을 알아보는 틀. 다시 실행해도 겹쳐 붙지 않게 떼어낸다.
+_GEN_HEAD = re.compile(
+    r"^(?:\d{4}년\s*\d{1,2}월,\s*)?"
+    r"(?:제작 현장|시승 현장|납품 현장|전시 현장|시험 현장|관련 행사|"
+    r"설계 단계의 외형|다른 각도에서 본 모습|각도를 바꿔서|반대쪽에서|"
+    r"같은 날의 다른 장면|같은 날, 다른 순간|그날의 또 한 장|"
+    r"같은 자리의 다른 장면|같은 자리에서|자리를 옮기지 않고|칼리)"
+    r"(?:\s*—\s*)?")
+
+
+def strip_generated(caption):
+    """원고에 남아 있는 '생성된 머리말'을 떼고 글쓴이의 문장만 남긴다.
+
+    머리말은 ' — ' 뒤에 글쓴이 문장을 붙이는 꼴로 들어간다. 원고의 원래
+    캡션에는 ' — ' 가 한 번도 안 쓰였으므로, 맨 뒤 토막이 글쓴이의 문장이다.
+    여러 번 실행하면 머리말이 겹쳐 쌓이는데(실제로 세 겹까지 쌓였다),
+    뒤 토막만 남기면 몇 번을 돌려도 같은 결과가 나온다.
+    """
+    if not caption:
+        return ""
+    return caption.split(" — ")[-1].strip()
+
+
+# 사진 설명이 너무 길면 본문보다 눈에 띈다. 넘치면 단계적으로 줄인다.
+CAPTION_MAX = 45
+
+
+def captions_for(srcs):
+    """한 편에 들어갈 사진들의 캡션을 한꺼번에 만든다.
+
+    한 편에 2장이 들어가는데 둘 다 같은 날 같은 자리에서 찍은 것이면
+    캡션이 글자 그대로 똑같아진다. 같은 문장이 두 번 찍히면 성의 없어 보인다.
+    두 번째는 사실을 유지하면서 다르게 적는다.
+    """
+    out = []
+    for s in srcs:
+        if s is None or s == "keep":
+            out.append(None)
+            continue
+        c = caption_for(s)
+        if c in out:
+            prev = srcs[out.index(c)]
+            same_place = Path(s).parent == Path(prev).parent
+            # 서른 편에 같은 문장이 열아홉 번 나오면 그것대로 눈에 띈다.
+            # 뜻이 같고 사실도 같은 표현을 돌려 쓴다. 고르는 기준은
+            # 파일 이름이라 다시 실행해도 결과가 같다.
+            pick = int(hashlib.md5(Path(s).name.encode()).hexdigest(), 16)
+            if photo_topic(s) == "설계":
+                alts = ["다른 각도에서 본 모습", "각도를 바꿔서", "반대쪽에서"]
+            elif same_place and photo_when(s):
+                alts = ["같은 날의 다른 장면", "같은 날, 다른 순간", "그날의 또 한 장"]
+            elif same_place:
+                # 날짜를 못 읽었으면 '같은 날'이라고 단정할 수 없다
+                alts = ["같은 자리의 다른 장면", "같은 자리에서", "자리를 옮기지 않고"]
+            else:
+                alts = [f"{c} — 다른 장면"]
+            c = alts[pick % len(alts)]
+        out.append(c)
+    return out
+
+
 def photos_first(paths):
     """실사진을 앞으로, 렌더·도면을 뒤로. 각 그룹 안의 순서는 그대로 둔다."""
     real = [p for p in paths if not looks_rendered(p)]
@@ -1001,10 +1165,34 @@ def main():
 def finish(needs, edu, kal, args, tiers=None):
     tiers = tiers or {}
 
-    # 배정: 원고 순서대로 앞에서부터 하나씩 꺼내 쓴다 (재사용 없음)
+    # 배정: 원고의 주제에 맞는 사진을 고른다.
+    #
+    # 예전에는 앞에서부터 순서대로 꺼내 썼다. 그래서 인증 이야기에 컨퍼런스
+    # 단체사진이, 설계 이야기에 납품 사진이 붙었다. 글·사진·캡션이 따로 놀았다.
+    # 지금은 원고 묶음(출발·좌절·설계·인증 …)마다 어울리는 사진 주제를 정해두고
+    # 그 순서로 집는다. 맞는 게 없으면 남은 것에서 앞에서부터 가져온다.
     plan, used = [], set()
+
+    def take(pool, taken, group):
+        """이 묶음에 어울리는 사진을 하나 꺼낸다. 없으면 남은 것 중 앞에서."""
+        prefs = ARTICLE_TOPIC_PREF.get(group, [])
+        for want in prefs:
+            for p in pool:
+                if p not in taken and photo_topic(p) == want:
+                    taken.add(p)
+                    return p
+        for p in pool:
+            if p not in taken:
+                taken.add(p)
+                return p
+        return None
+
+    taken_e, taken_k = set(), set()
     ei = ki = 0
     for path, prods in needs:
+        # 파일명 '17_인증_서른세종의시험.txt' 에서 가운데 토막이 묶음이다
+        parts = path.stem.split("_")
+        group = parts[1] if len(parts) > 1 else ""
         picks = []
         for product in prods:
             if product == "hist":
@@ -1012,11 +1200,11 @@ def finish(needs, edu, kal, args, tiers=None):
                 picks.append(("keep", None))
                 continue
             if product == "edukart":
-                src = edu[ei] if ei < len(edu) else None
+                src = take(edu, taken_e, group)
                 ei += 1
                 idx = ei
             else:
-                src = kal[ki] if ki < len(kal) else None
+                src = take(kal, taken_k, group)
                 ki += 1
                 idx = ki
             if src is None:
@@ -1034,9 +1222,11 @@ def finish(needs, edu, kal, args, tiers=None):
             ("(역사사진 유지)" if s == "keep" else (d or "(없음)")) for s, d in picks)
         st = "스타일 없음" if args.no_style else styles.style_for(i)["name"]
         print(f"  {path.name} [{st}] → {names}")
-        for s, d in picks:
+        caps = captions_for([s for s, _d in picks])
+        for (s, d), cap in zip(picks, caps):
             if s and s != "keep":
-                print(f"        {d}  ←  [{tiers.get(s, '-')}] {s}")
+                print(f"        {d}  “{cap}”")
+                print(f"          ←  [{photo_topic(s)}·{tiers.get(s, '-')}] {s}")
 
     if args.dry_run:
         print("\n(--dry-run 이므로 파일을 만들지 않았습니다)")
@@ -1073,22 +1263,39 @@ def finish(needs, edu, kal, args, tiers=None):
     spec = "가로 810px, 스타일 없음" if args.no_style else "편마다 다른 스타일"
     print(f"이미지 {made}장 생성 완료 [{spec}] → {IMAGES}")
 
-    # 원고 마커 재작성
+    # 원고 마커 재작성 — 이름과 캡션을 함께 바꾼다
+    #
+    # 캡션을 원고에 손으로 쓴 그대로 두면 사진과 어긋난다. 사진은 드라이브에서
+    # 오고 캡션은 글에서 왔으니 서로 만날 일이 없기 때문이다. 실제로
+    # "이 일곱 줄이 차의 생김새를 정한다" 밑에 컨퍼런스 단체사진이 붙었다.
+    # 이제 캡션은 배정된 사진에서 만든다. 사진에 없는 말은 쓰지 않는다.
     for path, picks in plan:
         text = path.read_text(encoding="utf-8")
-        names = [d for _, d in picks]
+        caps = captions_for([s for s, _d in picks])
         i = [0]
 
         def repl(_m):
-            n = names[i[0]] if i[0] < len(names) else None
-            i[0] += 1
-            if not n:
+            if i[0] >= len(picks):
+                i[0] += 1
                 return _m.group(0)
-            caption = _m.group(2)          # 사진 설명은 그대로 살린다
-            return f"[[img:{n}|{caption}]]" if caption else f"[[img:{n}]]"
+            src, n = picks[i[0]]
+            cap = caps[i[0]]
+            i[0] += 1
+            if src == "keep" or not n:
+                return _m.group(0)         # 역사 사진은 캡션에 출처가 들어 있다
+            # 사진이 무엇인지(사실) + 글쓴이가 붙인 한 줄(맥락).
+            # 사실만 적으면 글과 끊어지고, 글쓴이 문장만 두면 사진과 어긋난다.
+            # 사진은 이제 글의 주제에 맞춰 고르므로 둘이 나란히 서도 어색하지 않다.
+            own = strip_generated(_m.group(2))
+            full = f"{cap} — {own}" if own else cap
+            if len(full) > CAPTION_MAX:
+                # 사진은 이미 글의 주제에 맞춰 골랐으니, 둘 중 하나만 남아도
+                # 어긋나지 않는다. 뜻을 더 담은 글쓴이 문장을 먼저 살린다.
+                full = own if own and len(own) <= CAPTION_MAX else cap
+            return f"[[img:{n}|{full}]]"
 
         path.write_text(MARKER.sub(repl, text), encoding="utf-8")
-    print(f"원고 {len(plan)}편의 이미지 마커를 재배정했습니다.")
+    print(f"원고 {len(plan)}편의 이미지 마커와 사진 설명을 다시 썼습니다.")
 
     # 검증
     seen = {}
