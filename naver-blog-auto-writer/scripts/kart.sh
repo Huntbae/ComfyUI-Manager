@@ -56,7 +56,16 @@ TXT
   check)    npm run --silent check ;;
   ffmpeg)   npm run --silent link-ffmpeg ;;
   frames)   npm run --silent frames -- "$@" ;;
-  pull)     git pull origin claude/naver-blog-auto-writer-tgbpz6 ;;
+  pull)     # images/ 는 kart images 가 매번 새로 만드는 생성물이다. 그게 수정됨
+            # 상태로 남아 있으면 git 이 pull 을 거부한다("unstaged changes").
+            # 실제로 이것 때문에 새 코드가 며칠 동안 안 내려갔다.
+            # 원본은 드라이브와 images_src/ 에 있으므로 버려도 잃는 게 없다.
+            if ! git diff --quiet -- "$DIR/images" 2>/dev/null; then
+              n=$(git diff --name-only -- "$DIR/images" | wc -l | tr -d ' ')
+              echo "생성된 사진 ${n}개가 수정돼 있어 되돌립니다 (kart images 로 다시 만들어집니다)."
+              git checkout -- "$DIR/images"
+            fi
+            git pull origin claude/naver-blog-auto-writer-tgbpz6 ;;
   sync)     node -e "const r=require('./src/sync').pullProgress(); console.log(r.ok ? ('동기화 완료 — 게시 '+(r.count===null?0:r.count)+'편') : ('동기화 실패: '+r.reason));" ;;
   next|다음|all|전부|status|reset|preview|login|topic|doctor|cookies|post)
             node index.js "$cmd" "$@" ;;
