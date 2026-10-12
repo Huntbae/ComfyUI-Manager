@@ -519,6 +519,10 @@ RENDER_HINTS = [
 ]
 # 렌더는 각도 이름으로 파일을 만든다 — A-side-down, B-front, B-iso …
 # 사진에는 이런 이름이 붙지 않는다.
+KR_VIEW_STEMS = {
+    "측면", "좌측면", "우측면", "앞면", "정면", "전면", "후면", "뒷면",
+    "상면", "상측면", "상층면", "윗면", "하면", "밑면", "투시", "투시도",
+}
 RENDER_VIEW = re.compile(
     r"^[a-z]?[-_ ]?(side|front|back|rear|top|bottom|iso|perspective)"
     r"([-_ ](up|down|left|right|trans|white))*$", re.I)
@@ -536,6 +540,8 @@ def looks_rendered(path):
     # 'A-perspective-down-white-trans (1).png' 처럼 끝의 사본 번호는 떼고 본다
     stem = re.sub(r"\s*\(\d+\)\s*$", "", path.stem).strip()
     if RENDER_VIEW.match(stem):
+        return True
+    if unicodedata.normalize("NFC", stem) in KR_VIEW_STEMS:
         return True
     # 투명 배경은 사진에 없다. 누끼·렌더에만 있다.
     if Image is not None and path.suffix.lower() == ".png":
@@ -563,7 +569,7 @@ PHOTO_TOPICS = [
     ("시험", ["시험", "전자파", "실측", "계측", "인증"]),
     ("행사", ["컨퍼런스", "포럼", "세미나", "워크샵", "워크숍", "회의", "이사회", "총회"]),
     ("제작", ["작업", "제작", "조립", "공장", "파트너", "연구개발", "개발 관련"]),
-    ("설계", ["랜더", "렌더", "render", "디자인", "투시", "도면", "설계도",
+    ("설계", ["랜더", "렌더", "render", "디자인", "투시", "도면", "설계도", "누끼",
               "cyclekart_image", "jpg_rc", "jpg_rk", "png/rc", "png/rk", "cad", "3d"]),
 ]
 # 캡션에 쓸 말. 사진이 실제로 보여주는 것만 적는다.
@@ -604,6 +610,10 @@ def photo_topic(path):
     for topic, words in PHOTO_TOPICS:
         if any(norm(w) in low for w in words):
             return topic
+    # 폴더 이름으로는 못 가렸지만 생김새가 렌더인 것들 — '측면.jpg' 같은 각도 이름,
+    # 투명 배경. 이걸 '차량'으로 두면 설명에 '칼리'라고만 적혀 실사진처럼 보인다.
+    if looks_rendered(path):
+        return "설계"
     return "차량"
 
 
@@ -621,6 +631,10 @@ def photo_when(path):
             month = int(b)
             if 2005 <= year <= 2035 and 1 <= month <= 12:
                 return f"{year}년 {month}월"
+    # 날짜가 없으면 폴더 이름이 연도인 경우라도 건진다
+    for part in Path(s).parts:
+        if re.fullmatch(r"20\d{2}", part) and 2005 <= int(part) <= 2035:
+            return f"{part}년"
     return None
 
 
@@ -647,7 +661,8 @@ def caption_for(path):
     if topic == "설계":
         return phrase                      # 렌더에 날짜를 붙이면 오해를 산다
     if when:
-        return f"{when}, {phrase}"
+        # '2023년 11월, 칼리' 보다 '2023년 11월의 칼리' 가 읽기 낫다
+        return f"{when}의 {phrase}" if topic == "차량" else f"{when}, {phrase}"
     return phrase
 
 
