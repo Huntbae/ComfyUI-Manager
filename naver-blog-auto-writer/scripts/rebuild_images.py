@@ -760,6 +760,12 @@ def dedupe(paths):
 
 def spread(paths, count):
     """후보가 필요 수보다 많으면 고르게 솎아 다양성을 확보한다."""
+    # 한 장도 필요 없으면 빈 목록이다. 예전에는 이 자리에 올 일이 없었는데,
+    # 1단계에서 수가 차도 2단계까지 가도록 바꾸면서 '필요 0장인데 후보는
+    # 있는' 경우가 생겼다 — 에듀카트 마커가 하나도 없는 지금 원고가 그렇다.
+    # 그대로 두면 len(paths)/0 으로 죽는다.
+    if count <= 0:
+        return []
     if len(paths) <= count:
         return list(paths)
     step = len(paths) / count
@@ -1141,8 +1147,12 @@ def main():
     print("사진을 찾는 중입니다. 드라이브 크기에 따라 1~2분 걸릴 수 있습니다...")
     print("  (1단계 정밀 → 모자라면 2단계 확장 → 그래도 모자라면 드라이브 전체)")
     sweep = not args.no_sweep
-    edu, tier_edu = collect_tiered("edukart", roots, need_edu, sweep)
-    kal, tier_kal = collect_tiered("kalli", roots, need_kal, sweep)
+    # 필요 없는 쪽은 아예 찾지 않는다. 지금 원고는 전부 kalli 마커라
+    # 에듀카트는 0장인데, 그래도 훑으면 시간만 쓰고 쓰지도 않을 후보가 쌓인다.
+    edu, tier_edu = (collect_tiered("edukart", roots, need_edu, sweep)
+                     if need_edu else ([], {}))
+    kal, tier_kal = (collect_tiered("kalli", roots, need_kal, sweep)
+                     if need_kal else ([], {}))
     tiers = {**tier_edu, **tier_kal}
     def by_tier(paths):
         from collections import Counter
