@@ -7,7 +7,7 @@ images/ 를 다시 채우고, articles/ 의 [[img:...]] 마커를 겹치지 않�
 HEIC·RAW(ARW·CR3·NEF·DNG …)도 macOS 에서는 함께 쓴다.
 같은 사진이 다른 이름·다른 폴더에 있어도 내용 기준으로 한 번만 쓴다.
 
-사진은 3단계로 넓혀가며 찾는다. 앞 단계로 채워지면 다음 단계는 실행하지 않는다.
+사진은 3단계로 넓혀가며 찾는다. 1·2단계는 항상 함께 보고, 3단계는 모자랄 때만 간다.
   1단계 정밀 — 파일명·폴더명이 제품과 직접 맞는 것
   2단계 확장 — 활동·부품 키워드 (안전정비 교육, 조립, 아두이노, 시승 ...)
   3단계 전체 — 드라이브 전체 사진 중 품질 기준 통과분 (--no-sweep 으로 끌 수 있음)
@@ -438,8 +438,17 @@ def collect_tiered(kind, roots, need, sweep=True):
         hits = [p for p in all_images
                 if any(h in norm(p) for h in low_hints)]
     add(hits, "1단계 정밀")
-    if len(dedupe(found)) >= need:
-        return dedupe(found), tier_of
+
+    # 1단계에서 수가 차도 2단계까지는 간다.
+    #
+    # 예전에는 여기서 멈췄다. 그런데 한글 힌트가 고쳐지면서 1단계가
+    # '차량 이미지' 폴더를 통째로 잡게 됐고(32장 → 74장), 60장이 차버려
+    # 2단계를 건너뛰었다. 그 결과 60장 중 36장이 각도만 다른 렌더가 됐다.
+    # 시승회·납품·전시·시험 사진은 전부 2단계에 있다 — 글에 가장 필요한 것들이다.
+    #
+    # 1·2단계는 둘 다 제품 폴더 안이라 섞여도 무관한 사진이 들어오지 않는다.
+    # 수를 채우는 것보다 종류를 갖추는 것이 중요하다. 드라이브 전체를 훑는
+    # 3단계만 여전히 '모자랄 때만' 간다.
 
     # 2단계 — 활동·부품 키워드까지 확장
     # 상대 제품 폴더의 사진은 뺀다. 3단계에만 있던 방어를 여기에도 둔다 —
@@ -659,7 +668,10 @@ def caption_for(path):
     phrase = TOPIC_PHRASE.get(topic, "칼리")
     when = photo_when(path)
     if topic == "설계":
-        return phrase                      # 렌더에 날짜를 붙이면 오해를 산다
+        # 렌더에 날짜를 붙이면 실제로 그때 찍은 것처럼 오해를 산다.
+        # 대신 표현을 돌려 쓴다 — 기준이 파일 이름이라 다시 실행해도 같다.
+        alts = ["설계 단계의 외형", "외형 설계안", "설계안의 모습"]
+        return alts[int(hashlib.md5(path.name.encode()).hexdigest(), 16) % len(alts)]
     if when:
         # '2023년 11월, 칼리' 보다 '2023년 11월의 칼리' 가 읽기 낫다
         return f"{when}의 {phrase}" if topic == "차량" else f"{when}, {phrase}"
@@ -1172,8 +1184,12 @@ def main():
             sys.exit(1)
 
     # 실사진을 먼저 쓴다. 렌더·도면은 모자랄 때만 채운다.
-    edu = spread(photos_first(edu), need_edu)
-    kal = spread(photos_first(kal), need_kal)
+    #
+    # 필요한 수만큼만 남기면 주제를 맞출 여지가 없다 — 60자리에 후보가 60장이면
+    # 고르는 게 아니라 순서대로 꽂는 것과 같다. 넉넉히 남겨 두고 finish() 에서
+    # 글의 주제에 맞는 것을 집게 한다. 최종 장수는 거기서 맞춰진다.
+    edu = spread(photos_first(edu), min(len(edu), max(need_edu * 4, need_edu)))
+    kal = spread(photos_first(kal), min(len(kal), max(need_kal * 4, need_kal)))
     return finish(needs, edu, kal, args, tiers)
 
 
