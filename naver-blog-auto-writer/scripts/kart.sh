@@ -32,6 +32,12 @@ kart 사용법 (어느 폴더에서든 실행 가능)
       --src <경로>       볼 폴더를 직접 추가 (공백 있으면 따옴표)
       --only-src         그 폴더만 본다 (자동 인식 끔)
     kart history         역사 사진 내려받기 (출처 자동 표기)
+    kart videos [옵션]   동영상 모으기 + BGM 입히기 (원본 소리는 덮는다)
+      --scan-only        어디에 몇 개 있는지만
+      --dry-run          편별 배정 계획만
+      --bgm <파일>       쓸 음원 (기본: music/bgm_quiet_90s.mp3)
+      --keep-audio       원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)
+    kart vposts          그 영상으로 [동영상] 원고 만들기
     kart topic           유튜브에서 글감 선정
 
   점검
@@ -52,6 +58,14 @@ TXT
   daily)    bash scripts/install-daily.sh "$@" ;;
   images)   python3 scripts/rebuild_images.py "$@" ;;
   history)  python3 scripts/fetch_history_images.py "$@" ;;
+  videos)   # 구글 드라이브에서 동영상을 모아 BGM 을 깔고 videos/ 에 넣는다.
+            # --bgm 을 안 주면 기본 음원을 쓴다 (원본 소리는 덮는다).
+            case " $* " in
+              *" --bgm "*|*" --keep-audio "*|*" --scan-only "*|*" --dry-run "*)
+                python3 scripts/collect_videos.py "$@" ;;
+              *) python3 scripts/collect_videos.py --bgm music/bgm_quiet_90s.mp3 "$@" ;;
+            esac ;;
+  vposts)   python3 scripts/make_video_articles.py "$@" ;;
   test)     npm test --silent ;;
   check)    npm run --silent check ;;
   ffmpeg)   npm run --silent link-ffmpeg ;;

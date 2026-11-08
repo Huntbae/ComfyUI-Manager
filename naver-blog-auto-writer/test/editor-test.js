@@ -7,6 +7,7 @@
 // 이 테스트는 그 상황들을 매번 재현해서 실패로 잡는지 확인한다.
 //
 //   npm test
+const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
 const { findChromium } = require('../src/chromium-path');
@@ -14,9 +15,19 @@ const { fillEditor } = require('../src/post.js');
 const { markdownToPlain } = require('../src/format.js');
 const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
 
+// 동영상 시험용 더미 파일. 가짜 에디터는 파일 내용을 보지 않고,
+// post.js 는 존재만 확인한다. 진짜 영상을 두면 collect_videos 가
+// videos/ 를 비울 때 같이 지워져 시험이 깨진다 — 실제로 그랬다.
+const VDIR = path.join(__dirname, '..', 'videos');
+const VFIX = path.join(VDIR, 'test_v01.mp4');
+function makeVideoFixture() {
+  fs.mkdirSync(VDIR, { recursive: true });
+  if (!fs.existsSync(VFIX)) fs.writeFileSync(VFIX, Buffer.alloc(1024));
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: findChromium(), headless: true });
-  const run = async (label, { breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false } = {}) => {
+  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(FAKE);
@@ -35,9 +46,10 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     if (wipeAt) await page.evaluate((v) => { window.WIPE_AT = v; }, wipeAt);
     if (popupAt) await page.evaluate((v) => { window.POPUP_AT = v; }, popupAt);
     if (swallowFirst) await page.evaluate(() => { window.SWALLOW_FIRST = true; });
+    if (slowUpload) await page.evaluate((v) => { window.VIDEO_UPLOAD_MS = v; }, slowUpload);
     const r = await fillEditor(page, {
       title: '테스트 제목입니다',
-      content: '**굵은 소제목**\n첫 문단입니다.\n- 목록 항목\n\n| | 가 | 나 |\n|---|---|---|\n| 값 | 1 | 2 |\n\n[[img:kalli_01.png|사진 설명 한 줄]]\n둘째 문단입니다.',
+      content: content || '**굵은 소제목**\n첫 문단입니다.\n- 목록 항목\n\n| | 가 | 나 |\n|---|---|---|\n| 값 | 1 | 2 |\n\n[[img:kalli_01.png|사진 설명 한 줄]]\n둘째 문단입니다.',
       imagedir: path.join(__dirname, '..', 'images'),
     });
     console.log(`\n── ${label}: ok=${r.ok} reason=${r.reason || '-'} 시도=${r.attempts}`);
@@ -47,12 +59,26 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     return r;
   };
 
+  makeVideoFixture();
   const a = await run('정상');
   const b = await run('저장 버튼 먹통', { breakSave: true });
   const c = await run('제목칸 포커스 실패(플레이스홀더만)', { breakTitle: true });
   const d = await run('타이핑 도중 문서가 날아감', { wipeAt: 20 });
   const e = await run('타이핑 도중 복구 팝업', { popupAt: 20 });
   const f = await run('제목 첫 글자가 먹힘', { swallowFirst: true });
+  // 동영상: 업로드 레이어 → 제목 필수 → 완료 → 본문에 붙었는지 확인까지
+  const g = await run('동영상 1개', {
+    content: '첫 문단입니다.\n[[video:test_v01.mp4|2024년 6월, 제작 현장]]\n뒷 문단입니다.',
+  });
+  // 업로드가 느릴 때도 기다리는지 (완료 버튼이 늦게 풀린다)
+  const h = await run('동영상 업로드가 느림', {
+    content: '첫 문단입니다.\n[[video:test_v01.mp4|느린 업로드]]',
+    slowUpload: 6000,
+  });
+  // 파일이 없으면 올리지 않고 멈추는지
+  const i = await run('동영상 파일이 없음', {
+    content: '첫 문단\n[[video:없는파일.mp4|설명]]',
+  });
   await browser.close();
 
   // 마크다운이 평문으로 바뀌는지 (네이버는 마크다운을 해석하지 않는다)
@@ -83,6 +109,11 @@ const FAKE = 'file://' + path.join(__dirname, 'fake-editor.html');
     ['표가 문장으로 바뀌나', md.includes('값 — 가: 1 / 나: 2')],
     ['글머리 기호가 · 로 바뀌나', md.includes('· 항목')],
     ['이미지 마커는 그대로인가', md.includes('[[img:x.png|설명]]')],
+    ['동영상이 본문에 붙나', g.ok === true && g.videoComponents === 1],
+    ['동영상 제목이 네이버 쪽에 들어가나', g.videoTitle === '2024년 6월, 제작 현장'],
+    ['동영상 설명이 본문 문단으로 들어가나', (g.bodyText || '').includes('2024년 6월, 제작 현장')],
+    ['업로드가 느려도 기다리나', h.ok === true && h.videoComponents === 1],
+    ['없는 영상 파일은 올리지 않고 멈추나', i.ok === false && i.reason === 'video_missing'],
   ];
   console.log('\n════ 판정 ════');
   let pass = true;

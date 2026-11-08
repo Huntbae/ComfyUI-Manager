@@ -168,7 +168,12 @@ async function readDocState(root) {
       title: strip(document.querySelector(sel)),
       titleFlaggedEmpty: !!titleMod?.classList.contains('se-is-empty'),
       bodyChars: body.replace(/\s/g, '').length,
+      bodyText: body,
       imageComponents: imgs.length,
+      // 동영상도 본문에 실제로 붙었는지 세어야 한다. 사진과 세는 곳이 다르다.
+      videoComponents: document.querySelectorAll(
+        '.se-component.se-video, .se-component.se-videoThumbnail, .se-component[class*="video"]',
+      ).length,
       // 사진 설명은 본문이 아니라 사진 자체의 캡션칸에 들어가야 한다
       captions: imgs.map((el) => strip(el.querySelector('.se-caption .se-text-paragraph'))),
     };
@@ -310,10 +315,98 @@ async function tempSave(page, root, maxWaitMs = 20_000) {
 
 // 본문 안의 이미지 마커: [[img:파일명]] 또는 [[img:파일명|설명]]
 const IMG_MARKER = /^\s*\[\[\s*(?:img|image)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]\s*$/i;
+// 동영상 마커: [[video:파일명|설명]]
+const VIDEO_MARKER = /^\s*\[\[\s*(?:video|영상|동영상)\s*:\s*([^|\]]+?)\s*(?:\|\s*(.+?)\s*)?\]\]\s*$/i;
+
+// 동영상 삽입: 사진과 흐름이 다르다.
+//
+//   사진  — 툴바 버튼 → 파일창 → 본문에 바로 붙는다 (몇 초)
+//   동영상 — 툴바 버튼 → 업로드 레이어 → 파일창 → 업로드 → **제목 입력(필수)**
+//            → 완료 → 본문에 자리만 잡히고 인코딩은 서버에서 계속된다 (몇 분)
+//
+// 그래서 (1) 파일창이 바로 안 뜨면 레이어 안의 '추가' 버튼을 한 번 더 누르고,
+// (2) 업로드가 끝날 때까지 완료 버튼이 눌리는지 보고 기다리고,
+// (3) 제목을 채우고, (4) 본문에 영상 조각이 늘었는지 확인하고 돌아온다.
+// 고정 시간만 기다리고 성공이라고 하지 않는다 — 사진에서 그 방식으로 사고가 났다.
+const VIDEO_BTN = 'button[data-name="video"], .se-toolbar-item-video button, '
+  + 'button[data-log="dot.video"], [data-name="video"] button';
+const VIDEO_ADD = 'button.se-video-upload-button, button[class*="upload"], '
+  + 'a[class*="upload"], button:has-text("동영상 추가"), button:has-text("파일 추가")';
+const VIDEO_TITLE = 'input[class*="title"], input[placeholder*="제목"], '
+  + '.se-video-title input, input[name="title"]';
+const VIDEO_DONE = 'button:has-text("완료"), button:has-text("등록"), '
+  + 'button[class*="confirm"], button[class*="submit"]';
+
+async function insertVideo(page, root, videoPath, title, { uploadTimeout = 900_000 } = {}) {
+  await guardPopup(root);
+  const btn = root.locator(VIDEO_BTN).first();
+  if (!(await btn.count().catch(() => 0))) {
+    throw new Error('툴바에서 동영상 버튼을 찾지 못했습니다 (data-name="video"). '
+      + 'kart doctor 로 실제 버튼 이름을 확인하세요.');
+  }
+  const before = (await readDocState(root).catch(() => ({ videoComponents: 0 }))).videoComponents;
+
+  // 1) 버튼을 누른다. 파일창이 바로 뜨는 구현도 있고, 레이어가 먼저 뜨는 구현도 있다.
+  let chooser = null;
+  try {
+    [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', { timeout: 8_000 }),
+      btn.click(),
+    ]);
+  } catch {
+    // 레이어가 떴을 것이다. 그 안의 '추가' 버튼을 누르며 다시 기다린다.
+    const add = page.locator(VIDEO_ADD).first();
+    if (!(await add.count().catch(() => 0))) {
+      throw new Error('동영상 업로드 창을 찾지 못했습니다. kart doctor 로 구조를 확인하세요.');
+    }
+    [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', { timeout: 20_000 }),
+      add.click(),
+    ]);
+  }
+  await chooser.setFiles(videoPath);
+
+  // 2) 업로드를 기다린다. 완료 버튼이 눌릴 수 있게 되는 때가 업로드가 끝난 때다.
+  //    파일이 크면 몇 분이 걸린다. 그래서 기본 15분까지 본다.
+  const done = page.locator(VIDEO_DONE).first();
+  const deadline = Date.now() + uploadTimeout;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (await done.count().catch(() => 0)) {
+      if (await done.isEnabled().catch(() => false)) { ready = true; break; }
+    }
+    // 레이어 없이 본문에 바로 붙는 구현이면 여기서 이미 끝난다.
+    const now = (await readDocState(root).catch(() => ({ videoComponents: before }))).videoComponents;
+    if (now > before) return;
+    await page.waitForTimeout(3_000);
+  }
+  if (!ready) {
+    throw new Error(`동영상 업로드가 ${Math.round(uploadTimeout / 60_000)}분 안에 끝나지 않았습니다 `
+      + `(${path.basename(videoPath)}). 파일이 너무 크거나 업로드가 막혔습니다.`);
+  }
+
+  // 3) 제목은 네이버가 필수로 받는다. 비우면 완료가 눌리지 않는다.
+  const titleBox = page.locator(VIDEO_TITLE).first();
+  if (await titleBox.count().catch(() => 0)) {
+    await titleBox.fill((title || path.basename(videoPath, path.extname(videoPath))).slice(0, 60))
+      .catch(() => {});
+  }
+  await done.click({ timeout: 15_000 });
+
+  // 4) 본문에 실제로 붙었는지 확인한다. 인코딩은 서버에서 계속되지만
+  //    조각이 자리를 잡으면 임시저장에는 그대로 담긴다.
+  const attachBy = Date.now() + 120_000;
+  while (Date.now() < attachBy) {
+    const now = (await readDocState(root).catch(() => ({ videoComponents: before }))).videoComponents;
+    if (now > before) return;
+    await page.waitForTimeout(2_000);
+  }
+  throw new Error(`동영상을 올렸는데 본문에 붙지 않았습니다 (${path.basename(videoPath)}).`);
+}
 
 // 다시 시도할 가치가 있는 실패 — 에디터가 리로드돼 내용이 날아간 부류.
 // 저장 실패는 여기 넣지 않는다 (이미 저장됐을 수도 있어 다시 쓰면 초안이 중복된다).
-const RETRYABLE = new Set(['editor_reloaded', 'content_lost', 'title_empty', 'image_not_attached', 'title_mismatch', 'caption_mismatch', 'caption_box_missing', 'fill_error']);
+const RETRYABLE = new Set(['editor_reloaded', 'content_lost', 'title_empty', 'image_not_attached', 'video_not_attached', 'title_mismatch', 'caption_mismatch', 'caption_box_missing', 'fill_error']);
 
 // 제목·본문·이미지를 한 번 채우고 저장까지 한다.
 async function fillOnce(page, { title, content, images = [], imagedir = '', stampBefore = null }) {
@@ -398,7 +491,36 @@ async function fillOnce(page, { title, content, images = [], imagedir = '', stam
     const wantCaptions = [];
     // 스마트에디터는 마크다운을 해석하지 않는다. 그대로 치면 본문에
     // **굵게** 와 |---|---| 가 문자로 찍히므로 평문으로 바꿔서 넣는다.
+    let videosInserted = 0;
     for (const rawLine of markdownToPlain(content).split('\n')) {
+      const vm = rawLine.match(VIDEO_MARKER);
+      if (vm) {
+        // 영상은 videos/ 에서 찾는다. 사진과 폴더가 다르다.
+        const vPath = path.resolve(path.join(__dirname, '..', 'videos'), vm[1]);
+        if (!fs.existsSync(vPath)) {
+          const dir = await dumpEvidence(page, root, `missing-video-${stamp()}`);
+          return {
+            ok: false,
+            reason: 'video_missing',
+            hint: `${vm[1]} 파일이 없습니다. kart videos 를 먼저 돌리세요. 증거: ${dir}`,
+          };
+        }
+        try {
+          await insertVideo(page, root, vPath, vm[2] || '');
+        } catch (e) {
+          const dir = await dumpEvidence(page, root, `video-insert-${stamp()}`);
+          return { ok: false, reason: 'video_not_attached', hint: `${e.message} 증거: ${dir}` };
+        }
+        videosInserted += 1;
+        await focusBody();
+        // 영상 설명은 캡션칸이 아니라 바로 아래 문단에 적는다.
+        // 영상 조각에는 사진 같은 캡션칸이 없다.
+        if (vm[2]) {
+          await typeGuarded(vm[2], focusBody);
+          await page.keyboard.press('Enter');
+        }
+        continue;
+      }
       const m = rawLine.match(IMG_MARKER);
       if (m) {
         const imgPath = imagedir ? path.resolve(imagedir, m[1]) : m[1];
@@ -460,6 +582,9 @@ async function fillOnce(page, { title, content, images = [], imagedir = '', stam
     if (filled.imageComponents < imagesInserted) {
       return fail('image_not_attached', `사진 ${imagesInserted}장을 넣었는데 ${filled.imageComponents}장만 붙었습니다.`);
     }
+    if (filled.videoComponents < videosInserted) {
+      return fail('video_not_attached', `동영상 ${videosInserted}개를 넣었는데 ${filled.videoComponents}개만 붙었습니다.`);
+    }
     // 설명이 캡션칸에 제대로 들어갔는지 (본문으로 새면 여기서 걸린다)
     const gotCaptions = filled.captions || [];
     for (let n = 0; n < wantCaptions.length; n += 1) {
@@ -503,9 +628,15 @@ async function fillOnce(page, { title, content, images = [], imagedir = '', stam
       where,
       imagesInserted,
       imageComponents: filled.imageComponents,
+      videosInserted,
+      videoComponents: filled.videoComponents,
       captions: filled.captions,
       titleOnPage: filled.title,
       bodyChars: filled.bodyChars,
+      bodyText: filled.bodyText,
+      // 시험에서 '영상 제목이 네이버 쪽 칸에 들어갔는지' 보기 위한 값.
+      // 실제 네이버에서는 undefined 다 (가짜 에디터만 남긴다).
+      videoTitle: await page.evaluate(() => window.LAST_VIDEO_TITLE).catch(() => undefined),
       verifiedBy: saved.how,
       evidence: dir,
     };

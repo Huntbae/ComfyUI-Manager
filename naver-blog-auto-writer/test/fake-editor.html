@@ -6,10 +6,20 @@
 .se-popup-dim{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:8}</style>
 <div id="bar">
   <button data-name="image" onclick="document.getElementById('fi').click()">사진</button>
+  <button data-name="video" onclick="openVideoLayer()">동영상</button>
   <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
   <button data-click-area="tpb.publish">발행</button>
 </div>
 <input id="fi" type="file" style="display:none" onchange="addImg()">
+<input id="fv" type="file" style="display:none" onchange="videoUploaded()">
+<!-- 네이버 동영상 업로드 레이어 흉내:
+     추가 버튼 → 파일창 → 업로드(완료 버튼이 잠겨 있다) → 제목 필수 → 완료 -->
+<div id="vlayer" style="display:none;position:fixed;top:20%;left:25%;background:#fff;
+     border:2px solid #06c;padding:16px;z-index:10">
+  <button class="se-video-upload-button" onclick="document.getElementById('fv').click()">동영상 추가</button>
+  <input class="se-video-title" placeholder="제목을 입력하세요" style="display:none">
+  <button id="vdone" disabled onclick="videoDone()">완료</button>
+</div>
 <div class="se-container" id="doc"></div>
 <script>
 // 네이버 실제 DOM 흉내: 제목칸이 비어 있어도 플레이스홀더 "제목" 이 들어 있다.
@@ -25,6 +35,31 @@ blankDoc();
 
 let n = 3;
 function doSave(){ if(window.BREAK_SAVE) return; n++; document.getElementById('save').innerText='저장 '+n; }
+function openVideoLayer(){
+  document.getElementById('vlayer').style.display='block';
+}
+function videoUploaded(){
+  // 실제로는 업로드에 시간이 걸린다. 완료 버튼이 잠겨 있다가 풀리는 것이 핵심이다.
+  document.querySelector('.se-video-title').style.display='inline';
+  setTimeout(()=>{ document.getElementById('vdone').disabled = false; },
+             window.VIDEO_UPLOAD_MS === undefined ? 800 : window.VIDEO_UPLOAD_MS);
+}
+function videoDone(){
+  const title = document.querySelector('.se-video-title').value || '';
+  if (!title) return;                     // 네이버도 제목 없이는 안 넘어간다
+  window.LAST_VIDEO_TITLE = title;
+  document.getElementById('vlayer').style.display='none';
+  document.querySelector('.se-video-title').value='';
+  document.querySelector('.se-video-title').style.display='none';
+  document.getElementById('vdone').disabled = true;
+  const d=document.createElement('div'); d.className='se-component se-video';
+  d.textContent='[동영상 '+title+']';
+  document.getElementById('doc').appendChild(d);
+  const p=document.createElement('div'); p.className='se-component se-text';
+  p.innerHTML='<div class="se-text-paragraph" contenteditable></div>';
+  document.getElementById('doc').appendChild(p);
+  p.querySelector('.se-text-paragraph').focus();
+}
 function addImg(){
   const d=document.createElement('div'); d.className='se-component se-image';
   d.innerHTML='[사진]'

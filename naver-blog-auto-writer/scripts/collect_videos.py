@@ -183,9 +183,10 @@ def group_into_articles(vids):
         i = 0
         while i < len(group):
             take = group[i:i + PER_ARTICLE[1]]
-            # 마지막 조각이 1개뿐이면 앞 편에 붙인다. 영상 하나로 한 편을
-            # 만들 수는 있지만, 꼬리만 남은 편이 줄줄이 생기는 건 보기 나쁘다.
-            if len(take) == 1 and articles and articles[-1]["theme"] == theme:
+            # 마지막 조각이 1개뿐이면 앞 편에 붙인다. 다만 앞 편이 이미 상한이면
+            # 붙이지 않는다 — 한 편에 영상 4개가 들어가면 업로드가 너무 무겁다.
+            if (len(take) == 1 and articles and articles[-1]["theme"] == theme
+                    and len(articles[-1]["videos"]) < PER_ARTICLE[1]):
                 articles[-1]["videos"].extend(take)
             else:
                 articles.append({"theme": theme, "videos": list(take)})
