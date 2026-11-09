@@ -202,7 +202,16 @@ def mix_bgm(src, dst, bgm, exe, keep_audio=False):
     사라지고 현장 소음도 정리된다.
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
-    vf = f"scale={TARGET_WIDTH}:-2:force_original_aspect_ratio=decrease"
+    # 가로·세로 둘 다 상한을 두고, 원본보다 키우지 않는다.
+    #
+    # 예전에는 scale=1280:-2:force_original_aspect_ratio=decrease 였다.
+    # 치수를 한쪽만 줘서 force_original_aspect_ratio 가 아무 일도 하지 않았고,
+    # 세로 영상(1080×1920)이 1280×2276 으로 늘어났다. 블로그 본문에 2,276px
+    # 높이 영상이 들어가고 업로드만 무거워진다. 작은 영상(640×360)도
+    # 1280×720 으로 억지로 확대돼 화질은 그대로인데 파일만 커졌다.
+    cap = TARGET_WIDTH
+    vf = (f"scale='min({cap},iw)':'min({cap},ih)':force_original_aspect_ratio=decrease,"
+          "scale=trunc(iw/2)*2:trunc(ih/2)*2")
     cmd = [exe, "-y", "-hide_banner", "-loglevel", "error", "-t", str(MAX_SECONDS),
            "-i", str(src)]
     if bgm and not keep_audio:
