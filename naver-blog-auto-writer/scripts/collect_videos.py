@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -260,15 +261,32 @@ def main():
     # 0개가 잡히면 "폴더 이름을 확인하세요"만 봐서는 무엇을 확인할지 모른다.
     # 실제 폴더 이름을 보여줘야 VIDEO_HINTS 에 무엇을 더할지 알 수 있다.
     rejected = {}
-    for _label, r in roots:
+
+    # 루트를 찍고 나서 끝까지 아무 말이 없으면 끝난 줄 알게 된다.
+    # 구글 드라이브 스트리밍 마운트는 폴더마다 네트워크로 목록을 받아와
+    # 몇 분씩 걸린다. 외장 드라이브 두 개까지 합치면 더 길다.
+    # 그래서 살아 있다는 표시를 주기적으로 찍는다. \r 은 쓰지 않는다 —
+    # 터미널 출력을 그대로 복사해 붙이는 일이 많다.
+    print("\n훑는 중입니다. 드라이브가 크면 몇 분 걸립니다.")
+    for label, r in roots:
+        print(f"  [{label}] …", flush=True)
+        n_here, ours_here, last = 0, 0, time.monotonic()
         for p in walk_videos(r):
+            n_here += 1
             if is_ours(p):
                 found.append(p)
+                ours_here += 1
             else:
                 skipped += 1
                 th = theme_of(p)
                 if th and not any(norm(h) in norm(p) for h in EXCLUDE_HINTS):
                     rejected[th] = rejected.get(th, 0) + 1
+            now = time.monotonic()
+            if now - last >= 15:
+                print(f"      … 영상 파일 {n_here}개 확인, 우리 것 {ours_here}개",
+                      flush=True)
+                last = now
+        print(f"      → 영상 파일 {n_here}개 중 우리 것 {ours_here}개", flush=True)
     # 같은 영상이 여러 폴더에 있을 수 있다. 내용 지문으로 한 번만 쓴다.
     #
     # 예전에는 (파일명, 크기) 였다. 그래서 폴더가 다르고 내용도 다른 영상이
@@ -276,15 +294,24 @@ def main():
     # 이름(v1.mp4, output.mp4, GX010012.MP4)은 폴더마다 되풀이되고,
     # 고정 비트레이트로 같은 길이를 내보내면 크기까지 맞는다.
     # 시험에서 '칼리-여수' 폴더가 통째로 사라진 것이 이 때문이었다.
+    #
+    # 지문은 파일 앞뒤 64KB 를 읽는다. 구글 드라이브 스트리밍 마운트에서는
+    # 그 조각을 받아오느라 파일마다 시간이 걸리니 여기도 진행을 찍는다.
     seen, vids = set(), []
-    for p in sorted(found):
+    if found:
+        print(f"\n중복 확인 중 ({len(found)}개)…", flush=True)
+    last = time.monotonic()
+    for i, p in enumerate(sorted(found), 1):
         key = _content_key(p)
         if key is None:          # 읽을 수 없는 파일은 쓸 수 없다
             continue
-        if key in seen:
-            continue
-        seen.add(key)
-        vids.append(p)
+        if key not in seen:
+            seen.add(key)
+            vids.append(p)
+        now = time.monotonic()
+        if now - last >= 15:
+            print(f"      … {i}/{len(found)}", flush=True)
+            last = now
     if args.limit:
         vids = vids[:args.limit]
 
