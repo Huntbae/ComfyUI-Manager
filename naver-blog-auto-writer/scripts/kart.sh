@@ -33,10 +33,11 @@ kart 사용법 (어느 폴더에서든 실행 가능)
       --only-src         그 폴더만 본다 (자동 인식 끔)
     kart history         역사 사진 내려받기 (출처 자동 표기)
     kart videos [옵션]   동영상 모으기 + BGM 입히기 (원본 소리는 덮는다)
-      --scan-only        어디에 몇 개 있는지만
+      --scan-only        어디에 몇 개 있는지만 (못 잡은 폴더 이름도 보여준다)
       --dry-run          편별 배정 계획만
       --bgm <파일>       쓸 음원 (기본: music/bgm_quiet_90s.mp3)
       --keep-audio       원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)
+      --src <경로>       볼 폴더를 직접 추가 · --only-src 면 그것만
     kart vposts          그 영상으로 [동영상] 원고 만들기
     kart topic           유튜브에서 글감 선정
 

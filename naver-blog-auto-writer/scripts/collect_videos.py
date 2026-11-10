@@ -39,6 +39,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # 사진에서는 걸러지는 서류가 영상에서는 통과하는 일이 생긴다.
 from rebuild_images import norm, is_junk, walk_images  # noqa: E402  (walk 규칙 재사용)
 from rebuild_images import SKIP_DIRS, SKIP_DIR_SUFFIXES  # noqa: E402
+# 검색할 루트도 사진 쪽 것을 그대로 쓴다. 여기에 따로 만들어 뒀던 함수는
+# 구글 드라이브만 봤다 — 외장 드라이브(/Volumes)와 로컬 작업폴더를 빼먹었고,
+# 드라이브 하위도 '공유 문서함'을 몰랐다. 사진은 13,067장이 잡히는데
+# 영상은 몇 개밖에 안 잡히던 이유가 이것이다.
+from rebuild_images import find_roots  # noqa: E402
+# 중복 판정도 사진 쪽 것을 쓴다 (크기 + 앞뒤 64KB 해시).
+from rebuild_images import _content_key  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 VIDEOS = ROOT / "videos"
@@ -86,9 +93,27 @@ def ffmpeg():
     return None
 
 
+def ffprobe():
+    """ffprobe 실행 파일. PATH 에 없으면 ffmpeg 옆에 있는 것을 쓴다.
+
+    homebrew 로 깐 ffmpeg 에는 ffprobe 가 같이 들어오지만, setup.sh 가
+    playwright 쪽 ffmpeg 을 쓰게 된 기기에서는 PATH 에 ffprobe 가 없다.
+    그때 길이·해상도를 못 읽어 캡션의 '○초'가 조용히 빠졌다.
+    """
+    p = shutil.which("ffprobe")
+    if p:
+        return p
+    exe = ffmpeg()
+    if exe:
+        cand = Path(exe).with_name("ffprobe")
+        if cand.exists():
+            return str(cand)
+    return None
+
+
 def probe(path):
     """길이(초)·가로·세로. 못 읽으면 None."""
-    exe = shutil.which("ffprobe")
+    exe = ffprobe()
     if not exe:
         return None
     try:
@@ -136,34 +161,6 @@ def is_ours(path):
 def theme_of(path):
     """이 영상이 무엇인가. 바로 위 폴더 이름을 주제로 쓴다."""
     return unicodedata.normalize("NFC", path.parent.name).strip()
-
-
-def find_roots(extra=()):
-    """영상을 찾을 곳. 구글 드라이브 마운트와 --src."""
-    roots, seen = [], set()
-
-    def add(label, p):
-        try:
-            rp = Path(p).resolve()
-        except OSError:
-            return
-        if rp in seen or not rp.exists():
-            return
-        seen.add(rp)
-        roots.append((label, rp))
-
-    for e in extra:
-        add("직접 지정", e)
-
-    base = Path.home() / "Library" / "CloudStorage"
-    if base.exists():
-        for entry in sorted(base.iterdir()):
-            if not entry.name.startswith("GoogleDrive-"):
-                continue
-            acct = entry.name.replace("GoogleDrive-", "")
-            for sub in ("공유 드라이브", "Shared drives", "내 드라이브", "My Drive"):
-                add(f"구글 드라이브 ({acct})", entry / sub)
-    return roots
 
 
 def group_into_articles(vids):
@@ -239,6 +236,8 @@ def mix_bgm(src, dst, bgm, exe, keep_audio=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", action="append", default=[], metavar="경로")
+    ap.add_argument("--only-src", action="store_true",
+                    help="--src 로 준 폴더만 본다 (자동 인식 끔)")
     ap.add_argument("--scan-only", action="store_true", help="어디에 몇 개인지만")
     ap.add_argument("--dry-run", action="store_true", help="편별 배정 계획만")
     ap.add_argument("--bgm", metavar="음원", help="깔 BGM 파일 (mp3/m4a/wav)")
@@ -247,7 +246,9 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="영상 수 상한 (시험용)")
     args = ap.parse_args()
 
-    roots = find_roots(args.src)
+    if args.only_src and not args.src:
+        sys.exit("--only-src 는 --src <경로> 와 함께 써야 합니다.")
+    roots = find_roots(args.src, only_src=args.only_src)
     if not roots:
         sys.exit("영상을 찾을 폴더가 없습니다. 구글 드라이브가 연결됐는지 보거나 --src 를 주세요.")
     print("검색할 폴더:")
@@ -255,18 +256,30 @@ def main():
         print(f"  [{label}] {r}")
 
     found, skipped = [], 0
+    # 걸러진 영상이 어느 폴더에 있었는지 센다.
+    # 0개가 잡히면 "폴더 이름을 확인하세요"만 봐서는 무엇을 확인할지 모른다.
+    # 실제 폴더 이름을 보여줘야 VIDEO_HINTS 에 무엇을 더할지 알 수 있다.
+    rejected = {}
     for _label, r in roots:
         for p in walk_videos(r):
             if is_ours(p):
                 found.append(p)
             else:
                 skipped += 1
-    # 같은 영상이 여러 폴더에 있을 수 있다. 경로가 달라도 크기가 같으면 한 번만.
+                th = theme_of(p)
+                if th and not any(norm(h) in norm(p) for h in EXCLUDE_HINTS):
+                    rejected[th] = rejected.get(th, 0) + 1
+    # 같은 영상이 여러 폴더에 있을 수 있다. 내용 지문으로 한 번만 쓴다.
+    #
+    # 예전에는 (파일명, 크기) 였다. 그래서 폴더가 다르고 내용도 다른 영상이
+    # 이름과 크기만 같으면 뒤에 온 쪽이 버려졌다. 카메라·편집기가 붙이는
+    # 이름(v1.mp4, output.mp4, GX010012.MP4)은 폴더마다 되풀이되고,
+    # 고정 비트레이트로 같은 길이를 내보내면 크기까지 맞는다.
+    # 시험에서 '칼리-여수' 폴더가 통째로 사라진 것이 이 때문이었다.
     seen, vids = set(), []
     for p in sorted(found):
-        try:
-            key = (p.name.lower(), p.stat().st_size)
-        except OSError:
+        key = _content_key(p)
+        if key is None:          # 읽을 수 없는 파일은 쓸 수 없다
             continue
         if key in seen:
             continue
@@ -282,6 +295,14 @@ def main():
     print("\n주제(폴더)별:")
     for t in sorted(by_theme, key=lambda x: -len(by_theme[x])):
         print(f"  {len(by_theme[t]):3}개  {t}")
+
+    if rejected and (args.scan_only or not vids):
+        top = sorted(rejected.items(), key=lambda kv: -kv[1])[:20]
+        print(f"\n걸러진 영상이 있던 폴더 (상위 {len(top)}개 · 참조 폴더는 제외):")
+        for t, c in top:
+            print(f"  {c:3}개  {t}")
+        print("\n  위에 우리 영상 폴더가 섞여 있으면 그 이름을")
+        print("  scripts/collect_videos.py 의 VIDEO_HINTS 에 넣으면 잡힙니다.")
 
     if args.scan_only:
         return
