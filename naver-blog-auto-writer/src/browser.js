@@ -114,4 +114,31 @@ async function launchPersistent({ headful = false, record = false } = {}) {
   return { context, profileDir: PROFILE_DIR };
 }
 
-module.exports = { launch, launchPersistent, saveCookies, loadCookies, COOKIE_PATH, OUT_DIR, PROFILE_DIR };
+// 로그인 쿠키가 브라우저를 닫아도 남게 한다.
+//
+// 네이버 로그인 창에서 '로그인 상태 유지'를 체크하지 않으면 NID_AUT·NID_SES 가
+// 만료일 없는 쿠키로 온다. 크롬은 그런 쿠키를 창을 닫을 때 버린다 —
+// 전용 프로필을 써도 마찬가지다. 그래서 kart login 이 "✅ 로그인 확인"을
+// 찍고 창을 닫은 3분 뒤에 kart doctor 가 로그인 화면으로 튕겼다.
+//
+// 그런 쿠키에 만료일을 붙여 프로필에 남긴다. '로그인 상태 유지'를 체크한
+// 것과 같은 효과다. 값은 이 기기의 프로필 안에서만 옮겨지고, 파일로
+// 따로 쓰거나 화면에 찍지 않는다. 네이버가 서버에서 세션을 끊으면
+// 이것으로도 못 살린다 — 그때는 다시 로그인해야 한다.
+async function keepLogin(context, days = 30) {
+  const all = await context.cookies(['https://nid.naver.com', 'https://blog.naver.com']);
+  const targets = all.filter((c) => c.name === 'NID_AUT' || c.name === 'NID_SES');
+  const until = Math.floor(Date.now() / 1000) + days * 86_400;
+  const fixed = [];
+  for (const c of targets) {
+    if (c.expires > 0) continue;            // 이미 남는 쿠키
+    await context.addCookies([{
+      name: c.name, value: c.value, domain: c.domain, path: c.path,
+      httpOnly: c.httpOnly, secure: c.secure, sameSite: c.sameSite, expires: until,
+    }]);
+    fixed.push(c.name);
+  }
+  return { found: targets.map((c) => c.name), fixed };
+}
+
+module.exports = { launch, launchPersistent, saveCookies, loadCookies, keepLogin, COOKIE_PATH, OUT_DIR, PROFILE_DIR };

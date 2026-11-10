@@ -427,6 +427,64 @@ async function insertVideo(page, root, videoPath, title, { uploadTimeout = 900_0
   throw new Error(`동영상을 올렸는데 본문에 붙지 않았습니다 (${path.basename(videoPath)}).`);
 }
 
+// 글쓰기 화면에 못 들어갔을 때 왜인지를 글자로 남긴다.
+//
+// 블로그 홈은 프레임셋이라 바깥 페이지에는 글자도 버튼도 없다. 그래서
+// postwrite 가 블로그 홈으로 튕겼을 때 덤프(report.txt)가 텅 비어
+// 아무것도 알 수 없었다. 여기서는 세 가지를 본다.
+//   1) 로그인 쿠키가 있는지 — 값은 읽지도 찍지도 않는다. 이름과 만료만 본다.
+//   2) 프레임마다 주소와 화면 글자 앞머리
+//   3) 화면에 '로그인' 링크가 보이는지
+async function diagnoseEntry(page) {
+  const lines = [];
+  const state = { aut: false, ses: false, sessionOnly: [] };
+  try {
+    const cookies = await page.context().cookies(['https://nid.naver.com', 'https://blog.naver.com']);
+    for (const name of ['NID_AUT', 'NID_SES']) {
+      const c = cookies.find((x) => x.name === name);
+      if (!c) { lines.push(`  ${name}: 없음`); continue; }
+      if (name === 'NID_AUT') state.aut = true; else state.ses = true;
+      if (c.expires > 0) {
+        const days = Math.round((c.expires * 1000 - Date.now()) / 86_400_000);
+        lines.push(`  ${name}: 있음 (약 ${days}일 남음)`);
+      } else {
+        state.sessionOnly.push(name);
+        lines.push(`  ${name}: 있음 — 단, 브라우저를 닫으면 사라지는 쿠키`);
+      }
+    }
+  } catch (e) {
+    lines.push(`  쿠키를 읽지 못했습니다: ${e.message.split('\n')[0]}`);
+  }
+  let loginLink = false;
+  const frames = [];
+  for (const f of page.frames()) {
+    const info = await f.evaluate(() => ({
+      text: (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 140),
+      buttons: document.querySelectorAll('button, a[role="button"]').length,
+      login: !!document.querySelector('a[href*="nidlogin"], a[href*="nid.naver.com/nidlogin"]'),
+    })).catch(() => null);
+    const name = f === page.mainFrame() ? '바깥' : (f.name() || '이름없음');
+    if (!info) { frames.push(`  [${name}] ${f.url().slice(0, 90)}  (읽지 못함)`); continue; }
+    if (info.login) loginLink = true;
+    frames.push(`  [${name}] ${f.url().slice(0, 90)}`);
+    frames.push(`      버튼 ${info.buttons}개${info.login ? ' · 로그인 링크 보임' : ''} · "${info.text}"`);
+  }
+  const loggedIn = state.aut && state.ses;
+  let verdict;
+  if (!loggedIn) {
+    verdict = '로그인이 풀려 있습니다. kart login 으로 다시 로그인하세요 '
+      + "(로그인 창에서 '로그인 상태 유지'를 체크).";
+  } else if (loginLink) {
+    verdict = '쿠키는 있는데 화면에 로그인 링크가 보입니다. 네이버가 세션을 끊은 것으로 보입니다. '
+      + 'kart login 으로 다시 로그인하세요.';
+  } else {
+    verdict = '로그인은 돼 있는데 글쓰기 화면이 안 열렸습니다. '
+      + 'config.json 의 blogId 가 로그인한 계정의 블로그가 맞는지 확인하세요.';
+  }
+  return { loggedIn, loginLink, sessionOnly: state.sessionOnly, verdict,
+    text: ['로그인 쿠키:', ...lines, '프레임:', ...frames, `판정: ${verdict}`].join('\n') };
+}
+
 // 다시 시도할 가치가 있는 실패 — 에디터가 리로드돼 내용이 날아간 부류.
 // 저장 실패는 여기 넣지 않는다 (이미 저장됐을 수도 있어 다시 쓰면 초안이 중복된다).
 const RETRYABLE = new Set(['editor_reloaded', 'content_lost', 'title_empty', 'image_not_attached', 'video_not_attached', 'title_mismatch', 'caption_mismatch', 'caption_box_missing', 'fill_error']);
@@ -436,7 +494,14 @@ async function fillOnce(page, { title, content, images = [], imagedir = '', stam
   const { root, where } = await resolveEditor(page);
   if (!root) {
     const dir = await dumpEvidence(page, null, `no-editor-${stamp()}`);
-    return { ok: false, reason: 'editor_not_found', hint: `에디터를 찾지 못했습니다. 증거: ${dir}` };
+    // "에디터를 찾지 못했습니다"만으로는 무엇을 해야 할지 알 수 없다.
+    // 대부분은 로그인이 풀린 것이다 — 그걸 바로 말해준다.
+    const diag = await diagnoseEntry(page).catch(() => null);
+    if (diag && !diag.loggedIn) {
+      return { ok: false, reason: 'need_login', hint: `${diag.verdict} 증거: ${dir}` };
+    }
+    return { ok: false, reason: 'editor_not_found',
+      hint: `에디터를 찾지 못했습니다. ${diag ? diag.verdict : ''} 증거: ${dir}` };
   }
 
   await dismissRecoveryPopup(root);
@@ -901,4 +966,4 @@ async function editDraftProfile({
   }
 }
 
-module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl };
+module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl, diagnoseEntry };

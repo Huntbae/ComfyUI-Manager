@@ -161,6 +161,20 @@ const headfulOn = () => !flag('headless');
         const { root, where } = await resolveEditor(page);
         if (root) {
           console.log(`✅ 로그인 확인 — 글쓰기 화면이 열립니다 (에디터: ${where}).`);
+          // 여기서 창을 닫으면 로그인이 같이 사라질 수 있다 (keepLogin 주석 참고).
+          try {
+            const kept = await browser().keepLogin(context);
+            if (kept.found.length < 2) {
+              console.log('   ⚠️  로그인 쿠키를 찾지 못했습니다. 다음 실행에서 로그인이 풀릴 수 있습니다.');
+            } else if (kept.fixed.length) {
+              console.log('   로그인이 창을 닫아도 남도록 해뒀습니다 (이 기기의 프로필 안에만).');
+            } else {
+              console.log('   로그인 상태 유지: 이미 켜져 있습니다.');
+            }
+            await page.waitForTimeout(1500);   // 쿠키가 디스크에 내려갈 틈
+          } catch (e) {
+            console.log(`   ⚠️  로그인 유지 설정 실패: ${e.message.split('\n')[0]}`);
+          }
           console.log('   이제 kart next 로 임시저장할 수 있습니다.');
           code = 0;
         } else {
@@ -254,11 +268,18 @@ const headfulOn = () => !flag('headless');
     const { loadConfig } = queue;
     const cfg = loadConfig();
     const { launchPersistent } = require('./src/browser');
-    const { resolveEditor, dumpEvidence, writeUrl } = post();
+    const { resolveEditor, dumpEvidence, writeUrl, diagnoseEntry } = post();
     const { context } = await launchPersistent({ headful: headfulOn(), record: false });
     const page = context.pages()[0] || (await context.newPage());
     try {
       console.log(`글쓰기 화면 진입: ${writeUrl(cfg.blogId)}`);
+      // 어디를 거쳐 어디로 갔는지. 튕긴 경로가 원인을 말해준다.
+      const chain = [];
+      page.on('framenavigated', (f) => {
+        if (f !== page.mainFrame()) return;
+        const u = f.url().slice(0, 100);
+        if (chain[chain.length - 1] !== u) chain.push(u);
+      });
       await page.goto(writeUrl(cfg.blogId), { waitUntil: 'domcontentloaded' });
       // 리다이렉트가 끝나기 전에 URL 을 보면 로그인돼 있어도 nidlogin 이 걸린다.
       // 실제로 kart login 이 성공한 직후 doctor 가 "로그인 안 돼 있습니다"로
@@ -275,6 +296,13 @@ const headfulOn = () => !flag('headless');
         }
         // 진단 도구는 실패해도 덤프를 남긴다. 그게 이 명령의 존재 이유다.
         console.error(`덤프는 남겼습니다: ${dir}`);
+        // 블로그 홈은 프레임셋이라 덤프의 report.txt 가 텅 빈다.
+        // 그래서 원인을 여기서 글자로 찍는다.
+        console.error('\n── 진단 ──');
+        console.error('이동 경로:');
+        for (const u of chain) console.error(`  → ${u}`);
+        const diag = await diagnoseEntry(page).catch((e) => ({ text: `진단 실패: ${e.message}` }));
+        console.error(diag.text);
         process.exitCode = 1;
         return;
       }
