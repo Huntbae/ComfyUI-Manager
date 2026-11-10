@@ -38,6 +38,7 @@ kart 사용법 (어느 폴더에서든 실행 가능)
       --bgm <파일>       쓸 음원 (기본: music/bgm_quiet_90s.mp3)
       --keep-audio       원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)
       --src <경로>       볼 폴더를 직접 추가 · --only-src 면 그것만
+      --max-articles N   N편만 만든다 (주제를 돌아가며 뽑음)
     kart vposts          그 영상으로 [동영상] 원고 만들기
     kart topic           유튜브에서 글감 선정
 
@@ -45,7 +46,7 @@ kart 사용법 (어느 폴더에서든 실행 가능)
     kart status          큐 현황
     kart sync            진행 기록만 다른 기기와 맞추기
     kart reset           진행 기록 초기화 (1편부터 다시)
-    kart test            가짜 에디터로 로직 검증 (네이버 접속 안 함)
+    kart test            가짜 에디터 + 채택규칙 검증 (네이버 접속 안 함)
     kart doctor          에디터 구조 덤프 (셀렉터 점검)
     kart check / ffmpeg / frames
 

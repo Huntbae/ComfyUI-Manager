@@ -61,6 +61,8 @@ VIDEO_HINTS = [
     "칼리", "kalli", "사이클카트", "cyclekart", "cycle kart", "뉴트로", "newtro",
     "실측 확인 영상", "차량주행", "탑승영상", "운행영상", "주행 test",
     "교육 동영상", "교육 관련 영상", "고프로", "송부 동영상", "동영상 임시 백업",
+    # 스캔에서 제외 쪽에 있던 우리 폴더들.
+    "미래모빌리티포럼", "알루미늄 차체", "공도주행", "시승회", "레이싱파크",
 ]
 
 # 남의 영상 — 참조용으로 모아둔 것들. 사진에서와 같은 이유로 제외한다.
@@ -149,14 +151,69 @@ def walk_videos(root, max_depth=14):
                 yield Path(dirpath) / fn
 
 
+# 폴더 이름이 내용을 말해주지 않는 것들. '칼리/동영상/a.mp4' 처럼
+# 바로 위가 주제를 말해주는 경우가 있어서, 이 이름일 때만 한 단계 더 본다.
+# 이 목록에 없는 폴더(Photos-001·Mopetta·사람 이름)는 자기 이름으로만 판정한다.
+GENERIC_DIRS = {
+    "동영상", "영상", "영상자료", "video", "videos", "vid", "clip", "clips",
+    "mp4", "mov", "movie", "movies", "업로딩", "업로드", "출력", "export",
+}
+
+
+def tail(path, n=2):
+    """파일명 + 그 위 폴더. 채택 판정은 여기서만 한다.
+
+    예전에는 경로 전체에서 힌트를 찾았다. 그래서 조상 폴더 하나가
+    '칼리'면 그 아래 사진 라이브러리 덤프(Photos-001 277개)와 사람 이름
+    폴더(카메라 촬영_홍성욱 60개)까지 전부 끌려 들어왔다.
+
+    증거는 스캔 출력에 있었다 — '모빌리티 관련 동영상'이 채택 70개와
+    제외 70개 양쪽에 똑같이 찍혔다. 폴더 이름이 같은데 결과가 갈린 것은
+    판정이 그 폴더가 아니라 조상 경로로 되고 있었다는 뜻이다.
+
+    그래서 자기 폴더만 본다(n=2: 파일명 + 그 폴더). 폴더가 곧 주제다
+    (theme_of). 다만 폴더 이름이 '동영상'·'VIDEO' 처럼 내용이 없을 때만
+    한 단계 더 본다 — GENERIC_DIRS 와 matched_hints 를 보라.
+
+    느슨하게 잡아 영상을 더 건지는 쪽보다 좁게 잡는 쪽을 골랐다.
+    빠진 영상은 그냥 빠진 영상이지만, 잘못 들어간 영상은 남의 얼굴이나
+    남의 차가 공개 블로그에 올라가는 일이다. 무게가 다르다.
+    """
+    return _nospace(norm("/".join(Path(path).parts[-n:])))
+
+
+def _nospace(s):
+    """공백을 뺀다. 띄어쓰기 한 칸 차이로 놓치지 않기 위해서다.
+
+    '교육관련 영상'(170개)과 '1차 교육 관련 영상'(58개)이 둘 다 제외 쪽에
+    있었다. 힌트에는 '교육 관련 영상' 이라고 적혀 있었는데, 앞의 것은
+    '관련' 앞에 공백이 없어 문자열이 달랐다. 폴더 이름의 띄어쓰기는
+    사람이 그때그때 다르게 적으므로 비교에서 빼는 편이 맞다.
+    """
+    return re.sub(r"\s+", "", s)
+
+
+def matched_hints(path):
+    """어느 힌트로 채택됐는지. 스캔 출력에서 오탐을 눈으로 잡기 위한 것.
+
+    자기 폴더로 본다. 그 폴더 이름이 내용을 말해주지 않으면(GENERIC_DIRS)
+    한 단계 위까지 본다 — '칼리/동영상/a.mp4' 는 살리고
+    '칼리/Photos-001/a.mov' 와 '칼리/카메라 촬영_홍성욱/a.mp4' 는 버린다.
+    """
+    own = _nospace(norm(Path(path).parent.name))
+    t = tail(path, 3 if own in GENERIC_DIRS else 2)
+    return [h for h in VIDEO_HINTS if _nospace(norm(h)) in t]
+
+
 def is_ours(path):
     """우리가 찍은 영상인가. 참조 폴더와 서류성 파일은 뺀다."""
-    low = norm(path)
-    if any(norm(h) in low for h in EXCLUDE_HINTS):
+    # 제외는 경로 전체에서 본다. 조상이 '참조' 폴더면 그 아래는 전부 남의 것이다.
+    if any(norm(h) in norm(path) for h in EXCLUDE_HINTS):
         return False
     if is_junk(path):
         return False
-    return any(norm(h) in low for h in VIDEO_HINTS)
+    # 채택은 가까운 데서만 본다.
+    return bool(matched_hints(path))
 
 
 def theme_of(path):
@@ -190,6 +247,30 @@ def group_into_articles(vids):
                 articles.append({"theme": theme, "videos": list(take)})
             i += PER_ARTICLE[1]
     return articles
+
+
+def pick_articles(articles, cap):
+    """편수를 cap 개로 줄인다. 주제를 돌아가며 뽑는다.
+
+    앞에서부터 잘라내면 안 된다. group_into_articles 가 영상이 많은 주제를
+    먼저 놓으므로, 10편을 앞에서 자르면 '교육관련 영상' 한 주제로 열 편이
+    채워진다. 주제마다 한 편씩 돌아가며 뽑아야 열 편이 열 가지 이야기가 된다.
+    """
+    if cap <= 0 or len(articles) <= cap:
+        return articles
+    by_theme = {}
+    for a in articles:
+        by_theme.setdefault(a["theme"], []).append(a)
+    # 영상이 많은 주제부터 — 그쪽이 더 할 말이 있는 주제다
+    order = sorted(by_theme, key=lambda t: (-sum(len(x["videos"]) for x in by_theme[t]), t))
+    out = []
+    while len(out) < cap and any(by_theme[t] for t in order):
+        for t in order:
+            if by_theme[t]:
+                out.append(by_theme[t].pop(0))
+                if len(out) >= cap:
+                    break
+    return out
 
 
 def mix_bgm(src, dst, bgm, exe, keep_audio=False):
@@ -245,6 +326,8 @@ def main():
     ap.add_argument("--keep-audio", action="store_true",
                     help="원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)")
     ap.add_argument("--limit", type=int, default=0, help="영상 수 상한 (시험용)")
+    ap.add_argument("--max-articles", type=int, default=0, metavar="N",
+                    help="편수 상한. 주제를 돌아가며 N편만 만든다")
     args = ap.parse_args()
 
     if args.only_src and not args.src:
@@ -280,7 +363,12 @@ def main():
                 skipped += 1
                 th = theme_of(p)
                 if th and not any(norm(h) in norm(p) for h in EXCLUDE_HINTS):
-                    rejected[th] = rejected.get(th, 0) + 1
+                    # 왜 빠졌는지도 센다. '힌트에 안 걸림'과 '서류·개인정보로
+                    # 걸러짐'은 손쓸 방법이 다르다. 전자는 힌트를 더하면 되고,
+                    # 후자는 is_junk 규칙을 봐야 한다.
+                    why = "junk" if is_junk(p) else "no-hint"
+                    cur = rejected.setdefault(th, {"no-hint": 0, "junk": 0})
+                    cur[why] += 1
             now = time.monotonic()
             if now - last >= 15:
                 print(f"      … 영상 파일 {n_here}개 확인, 우리 것 {ours_here}개",
@@ -319,17 +407,21 @@ def main():
     by_theme = {}
     for v in vids:
         by_theme.setdefault(theme_of(v), []).append(v)
-    print("\n주제(폴더)별:")
+    print("\n주제(폴더)별:   (← 어느 힌트로 채택됐는지)")
     for t in sorted(by_theme, key=lambda x: -len(by_theme[x])):
-        print(f"  {len(by_theme[t]):3}개  {t}")
+        hs = sorted({h for v in by_theme[t] for h in matched_hints(v)})
+        why = f"   ← {', '.join(hs)}" if hs else ""
+        print(f"  {len(by_theme[t]):3}개  {t}{why}")
 
     if rejected and (args.scan_only or not vids):
-        top = sorted(rejected.items(), key=lambda kv: -kv[1])[:20]
+        top = sorted(rejected.items(), key=lambda kv: -sum(kv[1].values()))[:25]
         print(f"\n걸러진 영상이 있던 폴더 (상위 {len(top)}개 · 참조 폴더는 제외):")
-        for t, c in top:
-            print(f"  {c:3}개  {t}")
+        for t, d in top:
+            tag = "" if not d["junk"] else f"  (서류·개인정보로 걸러짐 {d['junk']}개)"
+            print(f"  {sum(d.values()):3}개  {t}{tag}")
         print("\n  위에 우리 영상 폴더가 섞여 있으면 그 이름을")
         print("  scripts/collect_videos.py 의 VIDEO_HINTS 에 넣으면 잡힙니다.")
+        print("  '서류·개인정보' 표시가 붙은 건 힌트를 더해도 안 잡힙니다.")
 
     if args.scan_only:
         return
@@ -337,6 +429,12 @@ def main():
         sys.exit("\n쓸 영상이 없습니다. --src 로 폴더를 직접 주거나 폴더 이름을 확인하세요.")
 
     articles = group_into_articles(vids)
+    if args.max_articles:
+        whole = len(articles)
+        articles = pick_articles(articles, args.max_articles)
+        if whole > len(articles):
+            print(f"\n전체 {whole}편 중 {len(articles)}편만 만듭니다 "
+                  f"(--max-articles {args.max_articles}, 주제를 돌아가며 뽑음)")
     print(f"\n{len(articles)}편으로 묶었습니다 (편당 {PER_ARTICLE[0]}~{PER_ARTICLE[1]}개)\n")
     for i, a in enumerate(articles, 1):
         print(f"  {i:2}. [{a['theme']}] {len(a['videos'])}개")
