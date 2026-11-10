@@ -148,6 +148,19 @@ const headfulOn = () => !flag('headless');
     let code = 1;
     try {
       await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'domcontentloaded' });
+      // '로그인 상태 유지'를 켜 둔다. 이게 꺼져 있으면 네이버가 로그인 쿠키를
+      // 창을 닫으면 사라지는 것으로 준다. 아이디·비밀번호는 건드리지 않는다.
+      try {
+        const kept = await page.evaluate(() => {
+          const box = document.querySelector('#keep, input[name="nvlong"]');
+          if (!box) return 'none';
+          if (box.checked) return 'already';
+          (document.querySelector('label[for="keep"]') || box).click();
+          return box.checked ? 'checked' : 'failed';
+        });
+        if (kept === 'checked' || kept === 'already') console.log("   '로그인 상태 유지'를 켜 뒀습니다.");
+        else console.log("   로그인 창에서 '로그인 상태 유지'를 직접 체크해 주세요.");
+      } catch { /* 못 켜도 로그인은 할 수 있다 */ }
       // 로그인 페이지를 벗어날 때까지 최대 5분 대기
       await page.waitForURL((u) => !u.href.includes('nidlogin'), { timeout: 300_000 });
 
@@ -188,7 +201,7 @@ const headfulOn = () => !flag('headless');
       console.error(`⏱ 실패: ${e.message.split('\n')[0]}`);
       console.error('   5분 안에 로그인을 마쳐야 합니다. 다시 시도하세요.');
     } finally {
-      await context.close();
+      await require('./src/browser').closeKeepingLogin(context);
     }
     process.exit(code);
   }
@@ -316,7 +329,7 @@ const headfulOn = () => !flag('headless');
         console.log(await probeVideoLayer(page, root).catch((e) => `확인 실패: ${e.message.split('\n')[0]}`));
       }
     } finally {
-      await context.close();
+      await require('./src/browser').closeKeepingLogin(context);
     }
     return;
   }

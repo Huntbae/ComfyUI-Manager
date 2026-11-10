@@ -42,12 +42,19 @@ fail() {
 }
 
 step "1/4  로그인과 동영상 업로드 창 확인"
-node index.js doctor --video || {
+if ! node index.js doctor --video; then
+  # 여기서 끝내고 "kart login 하고 다시 돌리세요"라고 하면 한 번을 더 오가야 한다.
+  # 로그인 창을 바로 띄우고, 되면 이어간다.
   echo
-  echo "글쓰기 화면에 못 들어갔습니다. 위의 '판정'을 보세요."
-  echo "로그인이 풀린 것이면:  kart login  →  kart vgo"
-  exit 1
-}
+  echo "글쓰기 화면에 못 들어갔습니다. 로그인 창을 띄웁니다."
+  echo "👉 뜨는 크롬 창에서 네이버에 로그인해 주세요 (5분 안에)."
+  node index.js login || { echo; echo "❌ 로그인을 확인하지 못했습니다. 다시 kart vgo 를 돌려주세요."; exit 1; }
+  node index.js doctor --video || {
+    echo
+    echo "❌ 로그인한 뒤에도 글쓰기 화면이 안 열립니다. 이 화면 전체를 보내주세요."
+    exit 1
+  }
+fi
 
 step "2/4  동영상 모으기 + 배경음악 (${N}편)"
 python3 scripts/collect_videos.py --bgm music/bgm_quiet_90s.mp3 --max-articles "$N" "$@" \

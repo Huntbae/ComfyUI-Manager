@@ -141,4 +141,19 @@ async function keepLogin(context, days = 30) {
   return { found: targets.map((c) => c.name), fixed };
 }
 
-module.exports = { launch, launchPersistent, saveCookies, loadCookies, keepLogin, COOKIE_PATH, OUT_DIR, PROFILE_DIR };
+// 프로필 창을 닫는다. 닫기 직전에 로그인 쿠키를 남긴다.
+//
+// 네이버는 쓰는 도중에도 세션을 갱신하고, 갱신된 쿠키는 다시 만료일 없이 온다.
+// 들어갈 때 한 번 남겨두는 것으로는 모자랐다 — 갱신된 뒤 그대로 창을 닫아
+// 로그인이 통째로 지워진 적이 있다(다음 실행에서 NID_AUT·NID_SES 가 '없음').
+// 그래서 닫는 자리에서 한 번 더 남긴다. 프로필 창은 이 함수로만 닫는다.
+async function closeKeepingLogin(context) {
+  try { await keepLogin(context); } catch { /* 닫는 것이 먼저다 */ }
+  try {
+    const page = context.pages()[0];
+    if (page) await page.waitForTimeout(800);   // 쿠키가 디스크에 내려갈 틈
+  } catch { /* 무시 */ }
+  await context.close();
+}
+
+module.exports = { launch, launchPersistent, saveCookies, loadCookies, keepLogin, closeKeepingLogin, COOKIE_PATH, OUT_DIR, PROFILE_DIR };

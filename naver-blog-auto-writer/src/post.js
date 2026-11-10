@@ -1105,7 +1105,7 @@ async function writePostProfile({
     const dir = await dumpEvidence(page, null, `error-${stamp()}`);
     return { ok: false, reason: 'error', hint: `${e.message.split('\n')[0]} / 증거: ${dir}` };
   } finally {
-    await context.close();
+    await require('./browser').closeKeepingLogin(context);
   }
 }
 
@@ -1230,7 +1230,7 @@ async function editDraftProfile({
     const dir = await dumpEvidence(page, null, `edit-error-${stamp()}`);
     return { ok: false, reason: 'error', hint: `${String(e.message).split('\n')[0]} / 증거: ${dir}` };
   } finally {
-    await context.close();
+    await require('./browser').closeKeepingLogin(context);
   }
 }
 
