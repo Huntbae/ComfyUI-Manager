@@ -260,12 +260,24 @@ const headfulOn = () => !flag('headless');
     try {
       console.log(`글쓰기 화면 진입: ${writeUrl(cfg.blogId)}`);
       await page.goto(writeUrl(cfg.blogId), { waitUntil: 'domcontentloaded' });
-      if (page.url().includes('nidlogin')) {
-        console.error('❌ 로그인이 안 돼 있습니다. node index.js login 을 먼저 하세요.');
+      // 리다이렉트가 끝나기 전에 URL 을 보면 로그인돼 있어도 nidlogin 이 걸린다.
+      // 실제로 kart login 이 성공한 직후 doctor 가 "로그인 안 돼 있습니다"로
+      // 끝나, 정작 진단 도구가 진단을 안 하고 빠져나갔다.
+      // 그래서 에디터가 뜨는지를 먼저 보고, 못 뜨면 그때 URL 을 본다.
+      const { root, where } = await resolveEditor(page);
+      if (!root) {
+        const dir = await dumpEvidence(page, null,
+          `doctor-failed-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+        if (page.url().includes('nidlogin')) {
+          console.error('❌ 로그인이 안 돼 있습니다. node index.js login 을 먼저 하세요.');
+        } else {
+          console.error(`❌ 에디터를 찾지 못했습니다. 현재 주소: ${page.url()}`);
+        }
+        // 진단 도구는 실패해도 덤프를 남긴다. 그게 이 명령의 존재 이유다.
+        console.error(`덤프는 남겼습니다: ${dir}`);
         process.exitCode = 1;
         return;
       }
-      const { root, where } = await resolveEditor(page);
       console.log(`에디터 위치: ${where}`);
       const dir = await dumpEvidence(page, root, `doctor-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
       console.log(`\n덤프 완료: ${dir}`);

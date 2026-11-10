@@ -10,6 +10,8 @@
   <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
   <button data-click-area="tpb.publish">발행</button>
 </div>
+<!-- 네이버는 저장하면 안내를 띄운다. 개수를 못 읽는 스킨에서는 이것만이 증거다. -->
+<div id="toast"></div>
 <input id="fi" type="file" style="display:none" onchange="addImg()">
 <input id="fv" type="file" style="display:none" onchange="videoUploaded()">
 <!-- 네이버 동영상 업로드 레이어 흉내:
@@ -34,7 +36,12 @@ function blankDoc() {
 blankDoc();
 
 let n = 3;
-function doSave(){ if(window.BREAK_SAVE) return; n++; document.getElementById('save').innerText='저장 '+n; }
+function doSave(){
+  if(window.BREAK_SAVE) return;
+  n++;
+  document.getElementById('save').innerText='저장 '+n;
+  document.getElementById('toast').innerText='임시저장되었습니다';
+}
 function openVideoLayer(){
   document.getElementById('vlayer').style.display='block';
 }

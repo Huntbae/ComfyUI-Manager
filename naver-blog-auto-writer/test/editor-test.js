@@ -27,11 +27,23 @@ function makeVideoFixture() {
 
 (async () => {
   const browser = await chromium.launch({ executablePath: findChromium(), headless: true });
-  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false } = {}) => {
+  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false, hideCount = false, staleNotice = false } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(FAKE);
     if (breakSave) await page.evaluate(() => { window.BREAK_SAVE = true; });
+    // 저장 개수를 못 읽는 스킨 재현. 그때는 안내 문구만이 증거가 된다.
+    if (hideCount) {
+      await page.evaluate(() => { document.getElementById('save').innerText = '저장'; });
+    }
+    // 클릭 전부터 저장 완료 안내가 떠 있는 상황 재현.
+    // 네이버는 자동저장을 주기적으로 돌리고 그 안내를 화면에 남긴다.
+    // 이것 때문에 저장이 실패해도 성공으로 보고됐다 (기록 30편 / 실제 3개).
+    if (staleNotice) {
+      await page.evaluate(() => {
+        document.getElementById('toast').innerText = '자동저장 오후 02:03 임시저장되었습니다';
+      });
+    }
     // 제목칸이 포커스를 안 받는 상황 재현 (플레이스홀더 "제목"만 남는다).
     // 재시도로 새로 열어도 계속 안 되는 상황이어야 하므로 addInitScript 로 건다.
     if (breakTitle) {
@@ -79,6 +91,22 @@ function makeVideoFixture() {
   const i = await run('동영상 파일이 없음', {
     content: '첫 문단\n[[video:없는파일.mp4|설명]]',
   });
+
+  // ── 저장 확인의 구멍 ─────────────────────────────────────────
+  // 실제로 기록은 30편 저장 완료인데 네이버의 저장 개수는 3이었다.
+  // 원인: 저장 완료 안내를 클릭 전과 비교하지 않고 현재 화면에만
+  // 그 문구가 있는지 봤다. 자동저장 안내가 남아 있으면 항상 통과했다.
+  const j = await run('저장 먹통 + 안내가 이미 떠 있음', {
+    content: '첫 문단\n둘째 문단', breakSave: true, staleNotice: true,
+  });
+  // 개수를 못 읽는 스킨에서도 남아 있던 문구로 통과해서는 안 된다
+  const k = await run('개수 못 읽음 + 저장 먹통 + 안내가 이미 떠 있음', {
+    content: '첫 문단\n둘째 문단', breakSave: true, hideCount: true, staleNotice: true,
+  });
+  // 반대로 개수를 못 읽어도 안내가 **새로** 뜨면 성공으로 봐야 한다
+  const l = await run('개수 못 읽음 + 저장은 됨', {
+    content: '첫 문단\n둘째 문단', hideCount: true,
+  });
   await browser.close();
 
   // 마크다운이 평문으로 바뀌는지 (네이버는 마크다운을 해석하지 않는다)
@@ -114,6 +142,9 @@ function makeVideoFixture() {
     ['동영상 설명이 본문 문단으로 들어가나', (g.bodyText || '').includes('2024년 6월, 제작 현장')],
     ['업로드가 느려도 기다리나', h.ok === true && h.videoComponents === 1],
     ['없는 영상 파일은 올리지 않고 멈추나', i.ok === false && i.reason === 'video_missing'],
+    ['이미 떠 있던 저장 안내로 통과하지 않나', j.ok === false],
+    ['개수를 못 읽어도 묵은 안내로 통과하지 않나', k.ok === false],
+    ['개수를 못 읽어도 새 안내는 성공으로 보나', l.ok === true],
   ];
   console.log('\n════ 판정 ════');
   let pass = true;

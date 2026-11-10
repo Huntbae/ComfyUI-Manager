@@ -272,13 +272,28 @@ async function readSaveState(root) {
   }).catch(() => ({ text: '', count: null }));
 }
 
+async function readSaveNotice(root) {
+  // "자동저장"은 네이버가 스스로 돌리는 것이라 우리가 누른 저장의 증거가 아니다.
+  // 그 글자를 지운 뒤에 저장 완료 문구를 찾는다.
+  return root.evaluate(() => {
+    const t = (document.body.innerText || '').replace(/자동\s*저장/g, '');
+    return /저장되었습니다|저장했습니다|저장 완료|임시저장되었습니다/.test(t);
+  }).catch(() => false);
+}
+
 // 임시저장 — 누르고 끝내지 않고 저장됐는지 확인한다. 발행 버튼은 절대 누르지 않는다.
 async function tempSave(page, root, maxWaitMs = 20_000) {
   await closeHelpPanel(page, root);
   const before = await readSaveState(root);
+  // 클릭 전에 안내 문구가 이미 떠 있었는지 찍어둔다. 비교 대상이 없으면
+  // 남아 있던 문구로 성공이라고 우기게 된다.
+  const beforeNotice = await readSaveNotice(root);
 
   const save = root.locator(
-    '[data-click-area="tpb.save"], button.save_btn__bzc5B, button:has-text("저장")',
+    // 해시가 붙은 클래스(save_btn__bzc5B)를 박아두면 안 된다. 네이버가 빌드할
+    // 때마다 바뀐다 — 오늘 덤프에는 save_btn__FuUyN 으로 찍혀 있었다.
+    // data-click-area 가 먼저이고, 클래스는 앞머리만 본다.
+    '[data-click-area="tpb.save"], button[class*="save_btn"], button:has-text("저장")',
   ).first();
   if (!(await save.count().catch(() => 0))) {
     return { ok: false, reason: 'save_button_not_found', before };
@@ -289,7 +304,15 @@ async function tempSave(page, root, maxWaitMs = 20_000) {
     await save.click({ force: true, timeout: 10_000 }).catch(() => {});
   }
 
-  // 저장 확인: (1) 저장 개수 증가 (2) 저장 완료 안내 문구 — 둘 중 하나면 성공
+  // 저장 확인: (1) 저장 개수 증가 (2) 저장 완료 안내가 **새로** 떴는지
+  //
+  // 예전에는 (2)를 클릭 전과 비교하지 않고 현재 화면에만 그 문구가 있는지 봤다.
+  // 네이버는 자동저장을 주기적으로 돌리고 그 안내를 화면에 남긴다
+  // (덤프에 "자동저장 오후 02:03"). 그래서 우리가 누른 저장이 실패해도
+  // 화면에 남아 있던 문구로 통과했다. 기록은 30편 저장 완료인데 네이버의
+  // 저장 개수는 3이었던 간극이 여기서 나왔다.
+  //
+  // 이제 클릭 전 상태를 찍어두고 없던 문구가 생긴 경우만 인정한다.
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await page.waitForTimeout(1_000);
@@ -297,11 +320,11 @@ async function tempSave(page, root, maxWaitMs = 20_000) {
     if (before.count !== null && after.count !== null && after.count > before.count) {
       return { ok: true, how: 'count', before, after };
     }
-    const notice = await root.evaluate(() => {
-      const t = document.body.innerText || '';
-      return /저장되었습니다|저장했습니다|저장 완료/.test(t);
-    }).catch(() => false);
-    if (notice) return { ok: true, how: 'notice', before, after };
+    // 개수를 읽을 수 있으면 개수만 믿는다. 안내 문구는 개수를 못 읽는
+    // 스킨에서만 쓰는 보조 수단이다.
+    if (before.count !== null) continue;
+    const notice = await readSaveNotice(root);
+    if (notice && !beforeNotice) return { ok: true, how: 'notice', before, after };
   }
   const after = await readSaveState(root);
   // 개수를 아예 못 읽는 스킨이면 판단 불가 — 성공으로 우기지 않는다
