@@ -25,3 +25,4 @@ images_card/
 # 원본은 구글 드라이브에 있고 kart videos 가 다시 만든다.
 videos/
 state/video_plan.json
+state/video_scan.json

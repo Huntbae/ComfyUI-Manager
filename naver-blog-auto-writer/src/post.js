@@ -43,6 +43,31 @@ async function resolveEditor(page) {
   return { root: null, where: 'not_found' };
 }
 
+// 덤프가 보는 프레임 말고 다른 프레임의 버튼·입력칸.
+// 동영상 업로드 창처럼 iframe 안에 뜨는 것은 바깥만 읽어서는 안 보인다.
+async function otherFrames(page, ctx) {
+  let out = '';
+  for (const f of page.frames()) {
+    if (f === ctx || (ctx === page && f === page.mainFrame())) continue;
+    const items = await f.evaluate(() => [...document.querySelectorAll('button, a[role="button"], input, textarea')]
+      .map((el) => ({
+        tag: el.tagName.toLowerCase(),
+        type: el.getAttribute('type') || '',
+        text: (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 30),
+        ph: el.getAttribute('placeholder') || '',
+        id: el.id || '',
+        cls: String(el.className || '').slice(0, 80),
+      }))
+      .filter((i) => i.type !== 'hidden')
+      .slice(0, 60)).catch(() => []);
+    if (!items.length) continue;
+    out += `\n\n=== 프레임 ${f.name() || '(이름없음)'} · ${f.url().slice(0, 80)} ===\n`
+      + items.map((i) => `<${i.tag}${i.type ? ` type=${i.type}` : ''}>${i.id ? ` #${i.id}` : ''} "${i.text}"`
+        + `${i.ph ? ` placeholder="${i.ph}"` : ''}  .${i.cls}`).join('\n');
+  }
+  return out;
+}
+
 // 실패 원인을 나중에 볼 수 있게 화면·본문·버튼 목록을 남긴다.
 // 이게 없으면 "안 된다"는 말만 남고 뭘 고쳐야 할지 알 수 없다.
 async function dumpEvidence(page, root, tag) {
@@ -80,7 +105,8 @@ async function dumpEvidence(page, root, tag) {
     `URL: ${page.url()}\n\n=== 화면 텍스트 ===\n${text}\n\n=== 버튼 목록 ===\n` +
     buttons.map((b) => `[${b.area || b.name || '-'}] "${b.text}"  .${b.cls}`).join('\n') +
     '\n\n=== 입력칸 목록 ===\n' +
-    inputs.map((i) => `<${i.type}>${i.id ? ` #${i.id}` : ''}${i.ph ? ` placeholder="${i.ph}"` : ''}  .${i.cls}`).join('\n'));
+    inputs.map((i) => `<${i.type}>${i.id ? ` #${i.id}` : ''}${i.ph ? ` placeholder="${i.ph}"` : ''}  .${i.cls}`).join('\n') +
+    await otherFrames(page, ctx));
   return dir;
 }
 
@@ -394,12 +420,17 @@ const VIDEO_TITLE = [
   'input.se-video-title, .se-video-title input',
   'input[placeholder*="제목"]',
   'input[name="title"]',
+  // 마지막 수단: 동영상 버튼을 누른 뒤에 새로 생긴 글자 입력칸.
+  // 누르기 전에 있던 입력칸에는 data-kart-old 를 달아둔다 (insertVideo 참고).
+  'input[type="text"]:not([data-kart-old]), input:not([type]):not([data-kart-old])',
 ];
 const VIDEO_DONE = [
   'button.nvu_btn_submit',
   'button[class*="nvu_btn_submit"]',
   `button:has-text("완료")${NOT_TOOLBAR}`,
+  `a:has-text("완료")${NOT_TOOLBAR}, [role="button"]:has-text("완료")${NOT_TOOLBAR}`,
   `button:has-text("등록")${NOT_TOOLBAR}`,
+  `button:has-text("삽입")${NOT_TOOLBAR}`,
 ];
 
 // 후보 목록에서 화면에 보이는 첫 번째를 고른다. 적은 순서가 우선이다.
@@ -435,24 +466,63 @@ async function insertVideo(page, root, videoPath, title, { uploadTimeout = 900_0
   page.on('dialog', onDialog);
   try {
     // 1) 버튼을 누른다. 파일창이 바로 뜨는 구현도 있고, 업로드 창이 먼저 뜨는 구현도 있다.
-    let chooser = null;
+    //    누르기 전에 있던 입력칸에 표시를 해둔다. 누른 뒤 새로 생긴 것이
+    //    업로드 창의 것이다 (파일 입력칸·제목칸을 이름 없이도 찾을 수 있다).
+    for (const f of page.frames()) {
+      await f.evaluate(() => document.querySelectorAll('input')
+        .forEach((el) => el.setAttribute('data-kart-old', '1'))).catch(() => {});
+    }
+    let fed = false;
     try {
-      [chooser] = await Promise.all([
+      const [chooser] = await Promise.all([
         page.waitForEvent('filechooser', { timeout: 8_000 }),
         btn.click(),
       ]);
-    } catch {
+      await chooser.setFiles(videoPath);
+      fed = true;
+    } catch { /* 업로드 창이 먼저 뜨는 구현 — 아래로 */ }
+
+    // 길 ②: 업로드 창의 추가 버튼을 눌러 파일창을 띄운다.
+    if (!fed) {
       const add = await firstVisible(page, VIDEO_ADD);
-      if (!add) {
-        throw new Error('동영상 업로드 창에서 추가 버튼을 찾지 못했습니다. '
-          + 'kart doctor --video 로 구조를 확인하세요.');
+      if (add) {
+        try {
+          const [chooser] = await Promise.all([
+            page.waitForEvent('filechooser', { timeout: 12_000 }),
+            add.loc.click(),
+          ]);
+          await chooser.setFiles(videoPath);
+          fed = true;
+        } catch { /* 버튼은 있는데 파일창이 안 떴다 — 아래로 */ }
       }
-      [chooser] = await Promise.all([
-        page.waitForEvent('filechooser', { timeout: 20_000 }),
-        add.loc.click(),
-      ]);
     }
-    await chooser.setFiles(videoPath);
+
+    // 길 ③: 버튼을 못 찾아도 파일 입력칸에 직접 넣는다.
+    //    업로더는 결국 <input type=file> 로 파일을 받는다. 버튼의 이름이나
+    //    모양이 바뀌어도 이 입력칸은 남는다. 새로 생긴 것을 먼저, 그다음
+    //    동영상을 받는다고 적힌 것(accept)을 본다. 사진용 입력칸은 건너뛴다.
+    if (!fed) {
+      const tries = [
+        'input[type="file"]:not([data-kart-old])',
+        'input[type="file"][accept*="video"], input[type="file"][accept*="mp4"]',
+      ];
+      outer:
+      for (const sel of tries) {
+        for (const f of page.frames()) {
+          const loc = f.locator(sel);
+          const n = await loc.count().catch(() => 0);
+          for (let i = 0; i < n; i++) {
+            const acc = (await loc.nth(i).getAttribute('accept').catch(() => '')) || '';
+            if (/image/i.test(acc) && !/video|mp4/i.test(acc)) continue;
+            try { await loc.nth(i).setInputFiles(videoPath); fed = true; break outer; } catch { /* 다음 */ }
+          }
+        }
+      }
+    }
+    if (!fed) {
+      throw new Error('동영상 파일을 넣을 곳을 찾지 못했습니다 (추가 버튼도 파일 입력칸도 없음). '
+        + 'kart doctor --video 로 구조를 확인하세요.');
+    }
 
     // 2) 본문에 붙을 때까지 돈다. 그 사이에
     //      · 제목칸이 보이면 채운다 (네이버 필수. 파일명이 미리 들어가 있어도 바꾼다)

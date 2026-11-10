@@ -25,6 +25,7 @@ BGM을 깔고(원본 소리는 덮는다) videos/ 에 넣고, 편별 배정 계�
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -49,6 +50,7 @@ from rebuild_images import find_roots  # noqa: E402
 from rebuild_images import _content_key  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+SCAN_CACHE = ROOT / "state" / "video_scan.json"
 VIDEOS = ROOT / "videos"
 PLAN = ROOT / "state" / "video_plan.json"
 
@@ -326,6 +328,8 @@ def main():
     ap.add_argument("--keep-audio", action="store_true",
                     help="원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)")
     ap.add_argument("--limit", type=int, default=0, help="영상 수 상한 (시험용)")
+    ap.add_argument("--rescan", action="store_true",
+                    help="지난 스캔 결과를 쓰지 않고 드라이브를 다시 훑는다")
     ap.add_argument("--max-articles", type=int, default=0, metavar="N",
                     help="편수 상한. 주제를 돌아가며 N편만 만든다")
     args = ap.parse_args()
@@ -338,6 +342,28 @@ def main():
     print("검색할 폴더:")
     for label, r in roots:
         print(f"  [{label}] {r}")
+
+    # 외장 드라이브 두 개를 훑는 데 몇 분이 걸린다. 스캔만 하고, 계획만 보고,
+    # 실제로 만들 때마다 그 몇 분을 다시 쓸 이유가 없다. 하루 안의 결과는 다시 쓴다.
+    # 채택 규칙(힌트)이 바뀌면 결과도 달라지므로 규칙의 지문을 같이 적어둔다.
+    cache_key = hashlib.md5(json.dumps(
+        [sorted(str(r) for _l, r in roots), VIDEO_HINTS, EXCLUDE_HINTS, sorted(GENERIC_DIRS)],
+        ensure_ascii=False).encode()).hexdigest()
+    cached = None
+    if not args.rescan and SCAN_CACHE.exists():
+        try:
+            c = json.loads(SCAN_CACHE.read_text(encoding="utf-8"))
+            age = time.time() - c.get("at", 0)
+            if c.get("key") == cache_key and age < 86400:
+                cached = c
+        except (OSError, ValueError):
+            cached = None
+    if cached:
+        vids = [Path(x) for x in cached["vids"] if Path(x).exists()]
+        skipped, rejected = cached["skipped"], cached["rejected"]
+        print(f"\n지난 스캔 결과를 씁니다 ({int((time.time() - cached['at']) / 60)}분 전, "
+              f"영상 {len(vids)}개). 다시 훑으려면 --rescan")
+        return finish(args, vids, skipped, rejected)
 
     found, skipped = [], 0
     # 걸러진 영상이 어느 폴더에 있었는지 센다.
@@ -400,6 +426,19 @@ def main():
         if now - last >= 15:
             print(f"      … {i}/{len(found)}", flush=True)
             last = now
+    try:
+        SCAN_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        SCAN_CACHE.write_text(json.dumps({
+            "key": cache_key, "at": time.time(), "vids": [str(v) for v in vids],
+            "skipped": skipped, "rejected": rejected,
+        }, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    return finish(args, vids, skipped, rejected)
+
+
+def finish(args, vids, skipped, rejected):
+    """스캔 결과로 계획을 세우고 영상을 만든다."""
     if args.limit:
         vids = vids[:args.limit]
 

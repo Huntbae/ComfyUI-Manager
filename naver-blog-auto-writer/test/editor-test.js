@@ -27,11 +27,16 @@ function makeVideoFixture() {
 
 (async () => {
   const browser = await chromium.launch({ executablePath: findChromium(), headless: true });
-  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false, hideCount = false, staleNotice = false } = {}) => {
+  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false, hideCount = false, staleNotice = false, iconOnlyAdd = false } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(FAKE);
     if (breakSave) await page.evaluate(() => { window.BREAK_SAVE = true; });
+    // 업로드 창의 추가 버튼에 글자가 없는 경우(아이콘만) 재현.
+    // 글자로는 못 찾으니 파일 입력칸에 직접 넣는 길로 가야 한다.
+    if (iconOnlyAdd) {
+      await page.evaluate(() => { document.querySelector('.layer_add_btn').innerText = ''; });
+    }
     // 저장 개수를 못 읽는 스킨 재현. 그때는 안내 문구만이 증거가 된다.
     if (hideCount) {
       await page.evaluate(() => { document.getElementById('save').innerText = '저장'; });
@@ -107,6 +112,9 @@ function makeVideoFixture() {
   const l = await run('개수 못 읽음 + 저장은 됨', {
     content: '첫 문단\n둘째 문단', hideCount: true,
   });
+  const m = await run('추가 버튼에 글자가 없음', {
+    content: '첫 문단\n[[video:test_v01.mp4|2024년 6월, 제작 현장]]', iconOnlyAdd: true,
+  });
   await browser.close();
 
   // 마크다운이 평문으로 바뀌는지 (네이버는 마크다운을 해석하지 않는다)
@@ -145,6 +153,9 @@ function makeVideoFixture() {
     ['이미 떠 있던 저장 안내로 통과하지 않나', j.ok === false],
     ['개수를 못 읽어도 묵은 안내로 통과하지 않나', k.ok === false],
     ['개수를 못 읽어도 새 안내는 성공으로 보나', l.ok === true],
+    ['추가 버튼을 못 찾아도 파일 입력칸으로 올리나', m.ok === true && m.videoComponents === 1],
+    ['해시태그 줄의 첫 # 이 살아 있나', markdownToPlain('#에듀카트 #전기카트') === '#에듀카트 #전기카트'],
+    ['제목 표시(# 제목)는 여전히 떼나', markdownToPlain('# 큰 제목') === '큰 제목'],
   ];
   console.log('\n════ 판정 ════');
   let pass = true;

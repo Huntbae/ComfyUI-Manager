@@ -39,6 +39,7 @@ kart 사용법 (어느 폴더에서든 실행 가능)
       --keep-audio       원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)
       --src <경로>       볼 폴더를 직접 추가 · --only-src 면 그것만
       --max-articles N   N편만 만든다 (주제를 돌아가며 뽑음)
+    kart vgo [편수]      동영상 편을 한 번에 끝까지 (확인→모으기→원고→임시저장)
     kart vposts          그 영상으로 [동영상] 원고 만들기
     kart topic           유튜브에서 글감 선정
 
@@ -68,6 +69,7 @@ TXT
               *) python3 scripts/collect_videos.py --bgm music/bgm_quiet_90s.mp3 "$@" ;;
             esac ;;
   vposts)   python3 scripts/make_video_articles.py "$@" ;;
+  vgo)      bash scripts/vgo.sh "$@" ;;
   test)     npm test --silent ;;
   check)    npm run --silent check ;;
   ffmpeg)   npm run --silent link-ffmpeg ;;
