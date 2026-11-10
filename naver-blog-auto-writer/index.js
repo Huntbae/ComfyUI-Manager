@@ -268,7 +268,7 @@ const headfulOn = () => !flag('headless');
     const { loadConfig } = queue;
     const cfg = loadConfig();
     const { launchPersistent } = require('./src/browser');
-    const { resolveEditor, dumpEvidence, writeUrl, diagnoseEntry } = post();
+    const { resolveEditor, dumpEvidence, writeUrl, diagnoseEntry, probeVideoLayer } = post();
     const { context } = await launchPersistent({ headful: headfulOn(), record: false });
     const page = context.pages()[0] || (await context.newPage());
     try {
@@ -313,6 +313,10 @@ const headfulOn = () => !flag('headless');
       console.log('  report.txt   화면 텍스트 + 버튼 목록 (셀렉터 수정용)');
       console.log('  page.html    전체 HTML');
       console.log('\nreport.txt 를 보내주시면 어떤 셀렉터가 틀렸는지 잡겠습니다.');
+      if (flag('video')) {
+        console.log('\n── 동영상 업로드 창 ──');
+        console.log(await probeVideoLayer(page, root).catch((e) => `확인 실패: ${e.message.split('\n')[0]}`));
+      }
     } finally {
       await context.close();
     }

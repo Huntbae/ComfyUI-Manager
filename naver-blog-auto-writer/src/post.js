@@ -65,9 +65,22 @@ async function dumpEvidence(page, root, tag) {
     }))
     .filter((b) => b.text || b.area || b.name)
     .slice(0, 200)).catch(() => []);
+  // 입력칸도 남긴다. 동영상 제목칸처럼 버튼이 아닌 것의 셀렉터를 고칠 때 필요하다.
+  // 값은 남기지 않는다 — 어떤 칸이 있는지만 본다.
+  const inputs = await ctx.evaluate(() => [...document.querySelectorAll('input, textarea')]
+    .map((el) => ({
+      type: el.getAttribute('type') || el.tagName.toLowerCase(),
+      id: el.id || '',
+      ph: el.getAttribute('placeholder') || '',
+      cls: String(el.className || '').slice(0, 90),
+    }))
+    .filter((i) => i.type !== 'hidden')
+    .slice(0, 80)).catch(() => []);
   fs.writeFileSync(path.join(dir, 'report.txt'),
     `URL: ${page.url()}\n\n=== 화면 텍스트 ===\n${text}\n\n=== 버튼 목록 ===\n` +
-    buttons.map((b) => `[${b.area || b.name || '-'}] "${b.text}"  .${b.cls}`).join('\n'));
+    buttons.map((b) => `[${b.area || b.name || '-'}] "${b.text}"  .${b.cls}`).join('\n') +
+    '\n\n=== 입력칸 목록 ===\n' +
+    inputs.map((i) => `<${i.type}>${i.id ? ` #${i.id}` : ''}${i.ph ? ` placeholder="${i.ph}"` : ''}  .${i.cls}`).join('\n'));
   return dir;
 }
 
@@ -351,14 +364,59 @@ const VIDEO_MARKER = /^\s*\[\[\s*(?:video|영상|동영상)\s*:\s*([^|\]]+?)\s*(
 // (2) 업로드가 끝날 때까지 완료 버튼이 눌리는지 보고 기다리고,
 // (3) 제목을 채우고, (4) 본문에 영상 조각이 늘었는지 확인하고 돌아온다.
 // 고정 시간만 기다리고 성공이라고 하지 않는다 — 사진에서 그 방식으로 사고가 났다.
-const VIDEO_BTN = 'button[data-name="video"], .se-toolbar-item-video button, '
-  + 'button[data-log="dot.video"], [data-name="video"] button';
-const VIDEO_ADD = 'button.se-video-upload-button, button[class*="upload"], '
-  + 'a[class*="upload"], button:has-text("동영상 추가"), button:has-text("파일 추가")';
-const VIDEO_TITLE = 'input[class*="title"], input[placeholder*="제목"], '
-  + '.se-video-title input, input[name="title"]';
-const VIDEO_DONE = 'button:has-text("완료"), button:has-text("등록"), '
-  + 'button[class*="confirm"], button[class*="submit"]';
+const VIDEO_BTN = 'button[data-name="video"], button.se-video-toolbar-button';
+
+// 업로드 창 안의 것들. **앞에 적은 후보가 이긴다** (firstVisible 참고).
+//
+// 예전에는 쉼표로 이은 셀렉터 하나에 .first() 를 썼다. 그러면 적은 순서가
+// 아니라 문서 순서로 고른다. 게다가 'button:has-text("동영상 추가")' 는
+// 툴바 버튼에도 걸린다 — 실제 네이버의 툴바 버튼 글자가 '동영상 동영상 추가'
+// 이기 때문이다(2026-11-10 덤프). 그래서 업로드 창의 추가 버튼 대신 툴바
+// 버튼을 다시 눌렀고, 파일창이 안 떠서 video_not_attached 로 끝났다.
+// '파일 추가' 도 같은 식으로 툴바의 '파일 파일 추가' 에 걸린다.
+//
+// nvu_ 로 시작하는 것은 네이버 동영상 업로더의 클래스로 알려진 이름이다.
+// 이 프로젝트에서 실제 화면으로 확인한 것은 아니다. 틀려도 뒤의 글자 기반
+// 후보가 받는다. 무엇이 실제로 걸렸는지는 kart doctor --video 가 찍어준다.
+const NOT_TOOLBAR = ':not([class*="toolbar-button"]):not([data-name="video"]):not([data-name="file"])';
+const VIDEO_ADD = [
+  'button.nvu_btn_append.nvu_local',
+  'button[class*="nvu_btn_append"]',
+  'button.se-video-upload-button',
+  `button:has-text("동영상 추가")${NOT_TOOLBAR}`,
+  `a:has-text("동영상 추가")${NOT_TOOLBAR}`,
+  `button:has-text("내 컴퓨터")${NOT_TOOLBAR}`,
+  `button:has-text("파일 추가")${NOT_TOOLBAR}`,
+];
+const VIDEO_TITLE = [
+  '#nvu_inp_box_title',
+  'input[class*="nvu_inp"]',
+  'input.se-video-title, .se-video-title input',
+  'input[placeholder*="제목"]',
+  'input[name="title"]',
+];
+const VIDEO_DONE = [
+  'button.nvu_btn_submit',
+  'button[class*="nvu_btn_submit"]',
+  `button:has-text("완료")${NOT_TOOLBAR}`,
+  `button:has-text("등록")${NOT_TOOLBAR}`,
+];
+
+// 후보 목록에서 화면에 보이는 첫 번째를 고른다. 적은 순서가 우선이다.
+// 업로드 창이 iframe 안에 뜰 수도 있어 모든 프레임을 본다.
+async function firstVisible(page, sels) {
+  for (const sel of sels) {
+    for (const f of page.frames()) {
+      const loc = f.locator(sel);
+      const n = await loc.count().catch(() => 0);
+      for (let i = 0; i < Math.min(n, 5); i++) {
+        const el = loc.nth(i);
+        if (await el.isVisible().catch(() => false)) return { loc: el, sel };
+      }
+    }
+  }
+  return null;
+}
 
 async function insertVideo(page, root, videoPath, title, { uploadTimeout = 900_000 } = {}) {
   await guardPopup(root);
@@ -367,64 +425,148 @@ async function insertVideo(page, root, videoPath, title, { uploadTimeout = 900_0
     throw new Error('툴바에서 동영상 버튼을 찾지 못했습니다 (data-name="video"). '
       + 'kart doctor 로 실제 버튼 이름을 확인하세요.');
   }
-  const before = (await readDocState(root).catch(() => ({ videoComponents: 0 }))).videoComponents;
+  const count = async () => (await readDocState(root).catch(() => ({ videoComponents: -1 }))).videoComponents;
+  const before = Math.max(0, await count());
+  const want = (title || path.basename(videoPath, path.extname(videoPath))).slice(0, 60);
 
-  // 1) 버튼을 누른다. 파일창이 바로 뜨는 구현도 있고, 레이어가 먼저 뜨는 구현도 있다.
-  let chooser = null;
+  // 네이버가 alert() 로 말을 걸면(업로드 중에 완료를 눌렀을 때 등) 거기서 멈춰 선다.
+  // 확인을 눌러 넘긴다. 영상 삽입 동안만 건다.
+  const onDialog = (d) => { d.accept().catch(() => {}); };
+  page.on('dialog', onDialog);
   try {
-    [chooser] = await Promise.all([
-      page.waitForEvent('filechooser', { timeout: 8_000 }),
-      btn.click(),
-    ]);
-  } catch {
-    // 레이어가 떴을 것이다. 그 안의 '추가' 버튼을 누르며 다시 기다린다.
-    const add = page.locator(VIDEO_ADD).first();
-    if (!(await add.count().catch(() => 0))) {
-      throw new Error('동영상 업로드 창을 찾지 못했습니다. kart doctor 로 구조를 확인하세요.');
+    // 1) 버튼을 누른다. 파일창이 바로 뜨는 구현도 있고, 업로드 창이 먼저 뜨는 구현도 있다.
+    let chooser = null;
+    try {
+      [chooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 8_000 }),
+        btn.click(),
+      ]);
+    } catch {
+      const add = await firstVisible(page, VIDEO_ADD);
+      if (!add) {
+        throw new Error('동영상 업로드 창에서 추가 버튼을 찾지 못했습니다. '
+          + 'kart doctor --video 로 구조를 확인하세요.');
+      }
+      [chooser] = await Promise.all([
+        page.waitForEvent('filechooser', { timeout: 20_000 }),
+        add.loc.click(),
+      ]);
     }
-    [chooser] = await Promise.all([
-      page.waitForEvent('filechooser', { timeout: 20_000 }),
-      add.click(),
-    ]);
-  }
-  await chooser.setFiles(videoPath);
+    await chooser.setFiles(videoPath);
 
-  // 2) 업로드를 기다린다. 완료 버튼이 눌릴 수 있게 되는 때가 업로드가 끝난 때다.
-  //    파일이 크면 몇 분이 걸린다. 그래서 기본 15분까지 본다.
-  const done = page.locator(VIDEO_DONE).first();
-  const deadline = Date.now() + uploadTimeout;
-  let ready = false;
-  while (Date.now() < deadline) {
-    if (await done.count().catch(() => 0)) {
-      if (await done.isEnabled().catch(() => false)) { ready = true; break; }
+    // 2) 본문에 붙을 때까지 돈다. 그 사이에
+    //      · 제목칸이 보이면 채운다 (네이버 필수. 파일명이 미리 들어가 있어도 바꾼다)
+    //      · 완료 버튼이 눌릴 수 있으면 누른다
+    //    예전에는 "완료가 눌릴 수 있게 되면 = 업로드 끝"으로 보고 한 번만 눌렀다.
+    //    완료가 처음부터 눌리는 구현이면 업로드 도중에 눌러 놓고 끝난 줄 알게 된다.
+    //    그래서 붙었는지를 유일한 성공 기준으로 삼고, 안 붙었으면 다시 누른다.
+    //    고정 시간만 기다리고 성공이라고 하지 않는다.
+    const deadline = Date.now() + uploadTimeout;
+    let clicks = 0;
+    let lastClick = 0;
+    while (Date.now() < deadline) {
+      if (await count() > before) return;
+      const t = await firstVisible(page, VIDEO_TITLE);
+      if (t) {
+        const cur = await t.loc.inputValue().catch(() => null);
+        if (cur !== null && cur !== want) await t.loc.fill(want).catch(() => {});
+      }
+      const done = await firstVisible(page, VIDEO_DONE);
+      if (done && Date.now() - lastClick > 8_000
+          && await done.loc.isEnabled().catch(() => false)) {
+        await done.loc.click({ timeout: 10_000 }).catch(() => {});
+        clicks += 1;
+        lastClick = Date.now();
+      }
+      await page.waitForTimeout(1_500);
     }
-    // 레이어 없이 본문에 바로 붙는 구현이면 여기서 이미 끝난다.
-    const now = (await readDocState(root).catch(() => ({ videoComponents: before }))).videoComponents;
-    if (now > before) return;
+    const mins = Math.round(uploadTimeout / 60_000);
+    throw new Error(clicks
+      ? `완료를 ${clicks}번 눌렀지만 ${mins}분 안에 본문에 붙지 않았습니다 (${path.basename(videoPath)}).`
+      : `동영상 업로드가 ${mins}분 안에 끝나지 않았습니다 (${path.basename(videoPath)}). `
+        + '완료 버튼을 찾지 못했거나 끝까지 잠겨 있었습니다.');
+  } finally {
+    page.off('dialog', onDialog);
+  }
+}
+
+// 동영상 업로드 창을 열어 구조만 찍는다. 파일은 올리지 않는다.
+//
+// 툴바의 동영상 버튼은 덤프로 확인됐지만, 그 버튼을 누른 뒤 뜨는 창은
+// 눌러보기 전에는 알 수 없다. 영상을 20~40분 인코딩한 뒤 첫 편에서 막히는
+// 것보다, 먼저 열어보고 셀렉터를 맞추는 편이 싸다.
+async function probeVideoLayer(page, root) {
+  const out = [];
+  const snap = async () => {
+    const all = new Map();
+    for (const f of page.frames()) {
+      const where = f === page.mainFrame() ? '바깥' : (f.name() || f.url().slice(0, 50));
+      const items = await f.evaluate(() => {
+        const vis = (el) => {
+          const r = el.getBoundingClientRect();
+          const st = getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && st.display !== 'none' && st.visibility !== 'hidden';
+        };
+        return [...document.querySelectorAll('button, a[role="button"], input, textarea')].map((el) => ({
+          tag: el.tagName.toLowerCase(),
+          type: el.getAttribute('type') || '',
+          text: (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 30),
+          ph: el.getAttribute('placeholder') || '',
+          id: el.id || '',
+          cls: String(el.className || '').slice(0, 80),
+          disabled: !!el.disabled,
+          visible: vis(el),
+        }));
+      }).catch(() => []);
+      for (const it of items) {
+        const key = [where, it.tag, it.type, it.id, it.cls, it.text, it.ph, it.visible].join('|');
+        all.set(key, { where, ...it });
+      }
+    }
+    return all;
+  };
+  const fmt = (it) => `  [${it.where}] <${it.tag}${it.type ? ` type=${it.type}` : ''}>`
+    + `${it.id ? ` #${it.id}` : ''} "${it.text}"${it.ph ? ` placeholder="${it.ph}"` : ''}`
+    + `  .${it.cls}${it.disabled ? '  (잠김)' : ''}${it.visible ? '' : '  (안 보임)'}`;
+  const hits = async () => {
+    for (const [label, sels] of [['추가 버튼', VIDEO_ADD], ['제목칸', VIDEO_TITLE], ['완료 버튼', VIDEO_DONE]]) {
+      const h = await firstVisible(page, sels);
+      out.push(`  ${label}: ${h ? `걸림 ← ${h.sel}` : '안 걸림'}`);
+    }
+  };
+
+  let chooser = 0;
+  // 듣고 있으면 playwright 가 파일창을 가로채서 실제 창이 뜨지 않는다.
+  const onChooser = () => { chooser += 1; };
+  page.on('filechooser', onChooser);
+  try {
+    const btn = root.locator(VIDEO_BTN).first();
+    if (!(await btn.count().catch(() => 0))) return '툴바에서 동영상 버튼을 찾지 못했습니다.';
+    const before = await snap();
+    await btn.click();
     await page.waitForTimeout(3_000);
-  }
-  if (!ready) {
-    throw new Error(`동영상 업로드가 ${Math.round(uploadTimeout / 60_000)}분 안에 끝나지 않았습니다 `
-      + `(${path.basename(videoPath)}). 파일이 너무 크거나 업로드가 막혔습니다.`);
-  }
+    const after = await snap();
+    out.push(`툴바의 동영상 버튼을 누름 → 파일창 ${chooser ? '바로 뜸' : '안 뜸 (업로드 창이 먼저 뜨는 구현)'}`);
+    const fresh = [...after.entries()].filter(([k]) => !before.has(k)).map(([, v]) => v);
+    out.push(`새로 나타난 것 ${fresh.length}개:`);
+    for (const it of fresh.slice(0, 60)) out.push(fmt(it));
+    out.push('지금 셀렉터가 걸리는지:');
+    await hits();
 
-  // 3) 제목은 네이버가 필수로 받는다. 비우면 완료가 눌리지 않는다.
-  const titleBox = page.locator(VIDEO_TITLE).first();
-  if (await titleBox.count().catch(() => 0)) {
-    await titleBox.fill((title || path.basename(videoPath, path.extname(videoPath))).slice(0, 60))
-      .catch(() => {});
+    if (!chooser) {
+      const add = await firstVisible(page, VIDEO_ADD);
+      if (add) {
+        await add.loc.click().catch(() => {});
+        await page.waitForTimeout(3_000);
+        out.push(`추가 버튼을 누름 → 파일창 ${chooser ? '뜸 ✅' : '안 뜸 ❌'}`);
+      }
+    }
+    await page.keyboard.press('Escape').catch(() => {});
+    out.push('(파일은 올리지 않았습니다. 제목칸·완료 버튼은 업로드 뒤에야 나타날 수 있습니다.)');
+  } finally {
+    page.off('filechooser', onChooser);
   }
-  await done.click({ timeout: 15_000 });
-
-  // 4) 본문에 실제로 붙었는지 확인한다. 인코딩은 서버에서 계속되지만
-  //    조각이 자리를 잡으면 임시저장에는 그대로 담긴다.
-  const attachBy = Date.now() + 120_000;
-  while (Date.now() < attachBy) {
-    const now = (await readDocState(root).catch(() => ({ videoComponents: before }))).videoComponents;
-    if (now > before) return;
-    await page.waitForTimeout(2_000);
-  }
-  throw new Error(`동영상을 올렸는데 본문에 붙지 않았습니다 (${path.basename(videoPath)}).`);
+  return out.join('\n');
 }
 
 // 글쓰기 화면에 못 들어갔을 때 왜인지를 글자로 남긴다.
@@ -966,4 +1108,4 @@ async function editDraftProfile({
   }
 }
 
-module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl, diagnoseEntry };
+module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl, diagnoseEntry, probeVideoLayer };

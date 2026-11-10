@@ -5,8 +5,12 @@
 .se-popup-alert-confirm{position:fixed;top:30%;left:30%;background:#fff;border:2px solid #333;padding:20px;z-index:9}
 .se-popup-dim{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:8}</style>
 <div id="bar">
-  <button data-name="image" onclick="document.getElementById('fi').click()">사진</button>
-  <button data-name="video" onclick="openVideoLayer()">동영상</button>
+  <!-- 글자와 클래스는 실제 네이버 덤프(2026-11-10)에서 그대로 옮겼다.
+       툴바 버튼의 글자가 '동영상 동영상 추가' 라는 점이 중요하다 —
+       업로드 창의 '동영상 추가' 버튼을 글자로 찾으면 이 툴바 버튼이 먼저 걸린다. -->
+  <button data-name="image" class="se-image-toolbar-button" onclick="document.getElementById('fi').click()">사진 사진 추가</button>
+  <button data-name="video" class="se-video-toolbar-button" onclick="openVideoLayer()">동영상 동영상 추가</button>
+  <button data-name="file" class="se-file-toolbar-button">파일 파일 추가</button>
   <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
   <button data-click-area="tpb.publish">발행</button>
 </div>
@@ -18,7 +22,7 @@
      추가 버튼 → 파일창 → 업로드(완료 버튼이 잠겨 있다) → 제목 필수 → 완료 -->
 <div id="vlayer" style="display:none;position:fixed;top:20%;left:25%;background:#fff;
      border:2px solid #06c;padding:16px;z-index:10">
-  <button class="se-video-upload-button" onclick="document.getElementById('fv').click()">동영상 추가</button>
+  <button class="layer_add_btn" onclick="document.getElementById('fv').click()">동영상 추가</button>
   <input class="se-video-title" placeholder="제목을 입력하세요" style="display:none">
   <button id="vdone" disabled onclick="videoDone()">완료</button>
 </div>

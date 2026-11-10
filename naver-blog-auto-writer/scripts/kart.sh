@@ -47,7 +47,7 @@ kart 사용법 (어느 폴더에서든 실행 가능)
     kart sync            진행 기록만 다른 기기와 맞추기
     kart reset           진행 기록 초기화 (1편부터 다시)
     kart test            가짜 에디터 + 채택규칙 검증 (네이버 접속 안 함)
-    kart doctor          에디터 구조 덤프 (셀렉터 점검)
+    kart doctor [--video] 에디터 구조 덤프 (--video: 동영상 업로드 창도)
     kart check / ffmpeg / frames
 
   기타
