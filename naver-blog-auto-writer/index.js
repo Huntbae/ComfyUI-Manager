@@ -268,7 +268,7 @@ const headfulOn = () => !flag('headless');
     const { loadConfig } = queue;
     const cfg = loadConfig();
     const { launchPersistent } = require('./src/browser');
-    const { resolveEditor, dumpEvidence, writeUrl, diagnoseEntry, probeVideoLayer } = post();
+    const { resolveEditor, dumpEvidence, writeUrl, diagnoseEntry, probeVideoLayer, openWriter } = post();
     const { context } = await launchPersistent({ headful: headfulOn(), record: false });
     const page = context.pages()[0] || (await context.newPage());
     try {
@@ -280,19 +280,17 @@ const headfulOn = () => !flag('headless');
         const u = f.url().slice(0, 100);
         if (chain[chain.length - 1] !== u) chain.push(u);
       });
-      await page.goto(writeUrl(cfg.blogId), { waitUntil: 'domcontentloaded' });
-      // 리다이렉트가 끝나기 전에 URL 을 보면 로그인돼 있어도 nidlogin 이 걸린다.
-      // 실제로 kart login 이 성공한 직후 doctor 가 "로그인 안 돼 있습니다"로
-      // 끝나, 정작 진단 도구가 진단을 안 하고 빠져나갔다.
-      // 그래서 에디터가 뜨는지를 먼저 보고, 못 뜨면 그때 URL 을 본다.
-      const { root, where } = await resolveEditor(page);
+      // 한 번 튕겨도 다시 간다 (openWriter 주석 참고). 네이버가 세션을 갱신하고
+      // 블로그 홈으로 돌려보내는 경우가 있어서, 한 번의 실패로 끝내면 안 된다.
+      const { root, where, attempts } = await openWriter(page, cfg.blogId);
+      if (root && attempts > 1) console.log(`(${attempts}번째에 열렸습니다 — 네이버가 로그인을 갱신했습니다)`);
       if (!root) {
         const dir = await dumpEvidence(page, null,
           `doctor-failed-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
-        if (page.url().includes('nidlogin')) {
-          console.error('❌ 로그인이 안 돼 있습니다. node index.js login 을 먼저 하세요.');
+        if (where === 'need_login') {
+          console.error('❌ 로그인이 안 돼 있습니다. kart login 을 먼저 하세요.');
         } else {
-          console.error(`❌ 에디터를 찾지 못했습니다. 현재 주소: ${page.url()}`);
+          console.error(`❌ 글쓰기 화면을 세 번 열어도 에디터가 안 떴습니다. 현재 주소: ${page.url()}`);
         }
         // 진단 도구는 실패해도 덤프를 남긴다. 그게 이 명령의 존재 이유다.
         console.error(`덤프는 남겼습니다: ${dir}`);

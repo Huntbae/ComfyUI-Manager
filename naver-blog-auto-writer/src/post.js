@@ -43,6 +43,53 @@ async function resolveEditor(page) {
   return { root: null, where: 'not_found' };
 }
 
+// 글쓰기 화면을 연다. 한 번에 안 열리면 다시 간다.
+//
+// 네이버는 세션이 오래되면 글쓰기 주소를 로그인 페이지로 보냈다가
+// 스스로 세션을 갱신하고(signin/v3/finalize) 돌려보낸다. 그런데 돌려보내는
+// 곳이 글쓰기 화면이 아니라 블로그 홈이다 — 돌아갈 주소의 Redirect=Write 가
+// 빈 값으로 바뀌어 온다. 실제로 찍힌 경로:
+//   postwrite → nidlogin → signin/v3/finalize → huntbae?Redirect= → huntbae
+// 이때는 로그인이 풀린 것이 아니다. 방금 갱신됐다. 글쓰기 주소로 한 번 더
+// 가면 열린다. 예전에는 이 한 번의 튕김을 "에디터를 찾지 못했습니다"로 끝냈다.
+//
+// loginWaitMs: 로그인 폼에 머물러 있을 때 사람이 로그인하기를 기다릴 시간.
+// 0 이면 기다리지 않고 need_login 으로 돌려준다.
+async function openWriter(page, blogId, { loginWaitMs = 0, tries = 3 } = {}) {
+  const url = writeUrl(blogId);
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    // 리다이렉트가 가라앉기를 기다린다: 에디터가 뜨거나, 글쓰기 주소가 아닌 곳에
+    // 4초 동안 머물러 있거나.
+    const t0 = Date.now();
+    let cur = page.url();
+    let since = Date.now();
+    while (Date.now() - t0 < 30_000) {
+      if (await page.locator(EDITOR_SEL).count().catch(() => 0)) break;
+      await page.waitForTimeout(500);
+      if (page.url() !== cur) { cur = page.url(); since = Date.now(); }
+      else if (!cur.includes('postwrite') && Date.now() - since > 4_000) break;
+    }
+    if (page.url().includes('postwrite')) {
+      const r = await resolveEditor(page);
+      if (r.root) {
+        // 방금 갱신된 로그인 쿠키는 다시 "창을 닫으면 사라지는" 쿠키로 온다.
+        // 다음 실행을 위해 남겨둔다.
+        try { await require('./browser').keepLogin(page.context()); } catch { /* 없어도 진행 */ }
+        return { ...r, attempts: attempt };
+      }
+    }
+    if (page.url().includes('nidlogin')) {
+      // 로그인 폼에 머물러 있다 — 자동 갱신이 안 됐다. 사람이 로그인해야 한다.
+      if (!loginWaitMs) return { root: null, where: 'need_login', attempts: attempt };
+      await page.waitForURL((u) => !u.href.includes('nidlogin'), { timeout: loginWaitMs }).catch(() => {});
+      if (page.url().includes('nidlogin')) return { root: null, where: 'need_login', attempts: attempt };
+    }
+    // 그 밖(블로그 홈 등)이면 다시 간다.
+  }
+  return { root: null, where: 'not_found', attempts: tries };
+}
+
 // 덤프가 보는 프레임 말고 다른 프레임의 버튼·입력칸.
 // 동영상 업로드 창처럼 iframe 안에 뜨는 것은 바깥만 읽어서는 안 보인다.
 async function otherFrames(page, ctx) {
@@ -673,7 +720,13 @@ async function diagnoseEntry(page) {
     const info = await f.evaluate(() => ({
       text: (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 140),
       buttons: document.querySelectorAll('button, a[role="button"]').length,
-      login: !!document.querySelector('a[href*="nidlogin"], a[href*="nid.naver.com/nidlogin"]'),
+      // 블로그 홈에는 로그인한 상태에서도 숨은 로그인 링크가 있다. 보이는 것만 센다.
+      login: [...document.querySelectorAll('a[href*="nidlogin"]')].some((a) => {
+        const r = a.getBoundingClientRect();
+        const st = getComputedStyle(a);
+        return r.width > 0 && r.height > 0 && st.display !== 'none' && st.visibility !== 'hidden'
+          && /로그인/.test(a.innerText || '');
+      }),
     })).catch(() => null);
     const name = f === page.mainFrame() ? '바깥' : (f.name() || '이름없음');
     if (!info) { frames.push(`  [${name}] ${f.url().slice(0, 90)}  (읽지 못함)`); continue; }
@@ -1029,13 +1082,16 @@ async function writePostProfile({
   }
   const page = context.pages()[0] || (await context.newPage());
   try {
-    await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
-    if (page.url().includes('nidlogin')) {
-      if (!headful) {
-        return { ok: false, reason: 'need_login', hint: 'node index.js login 으로 이 프로필에 네이버 로그인을 한 번 해주세요' };
+    const opened = await openWriter(page, blogId, { loginWaitMs: headful ? 180_000 : 0 });
+    if (!opened.root) {
+      const dir = await dumpEvidence(page, null, `no-editor-${stamp()}`);
+      const diag = await diagnoseEntry(page).catch(() => null);
+      if (opened.where === 'need_login' || (diag && !diag.loggedIn)) {
+        return { ok: false, reason: 'need_login',
+          hint: `kart login 으로 이 프로필에 네이버 로그인을 해주세요. 증거: ${dir}` };
       }
-      await page.waitForURL((u) => !u.href.includes('nidlogin'), { timeout: 180_000 });
-      await page.goto(writeUrl(blogId), { waitUntil: 'domcontentloaded' });
+      return { ok: false, reason: 'editor_not_found',
+        hint: `글쓰기 화면을 ${opened.attempts}번 열어도 에디터가 안 떴습니다. ${diag ? diag.verdict : ''} 증거: ${dir}` };
     }
     const r = await fillEditor(page, { title, content, images, imagedir });
     let video = null;
@@ -1178,4 +1234,4 @@ async function editDraftProfile({
   }
 }
 
-module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl, diagnoseEntry, probeVideoLayer };
+module.exports = { writePost, writePostProfile, editDraftProfile, openDraftByTitle, readDraftStamp, fillEditor, OUT_DIR, resolveEditor, dumpEvidence, writeUrl, diagnoseEntry, probeVideoLayer, openWriter };
