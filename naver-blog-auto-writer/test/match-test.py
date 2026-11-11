@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from collect_videos import is_ours, matched_hints, theme_of  # noqa: E402
+from collect_videos import is_ours, matched_hints, theme_of, walk_videos  # noqa: E402
 
 # (설명, 경로, 채택되어야 하나)
 CASES = [
@@ -39,7 +39,20 @@ CASES = [
     ("일반 이름이지만 조상이 무관",
      "/Volumes/Mac Data/홍콩여행/동영상/c.mp4", False),
 
+    ("포럼 발표용으로 모은 남의 영상 (Airbus 등)",
+     "/Volumes/Mac Data/x/동영상-미래모빌리티포럼 발표영상/Air-Train.mp4", False),
+    ("포럼 폴더는 이름이 달라도 뺀다",
+     "/Volumes/Mac Data/x/2020미래모빌리티포럼영상/a.mp4", False),
+    ("파일 이름의 cyclekart 는 믿지 않는다 (내려받은 영상)",
+     "/Volumes/Mac Data/x/Kart Racing/CycleKart race 2019.mp4", False),
+    ("다른 프로젝트 폴더에 있는 '운행영상' 파일",
+     "/Volumes/Mac Data/x/Project 1 -초소형 전기화물차 개발/운행영상1.mp4", False),
+    ("칼리그라피는 칼리가 아니다",
+     "/Volumes/Mac Data/x/칼리그라피 수업/a.mp4", False),
+
     # ── 들어와야 하는 것 ──────────────────────────────────────
+    ("파일 이름의 제품명은 믿는다",
+     "/Volumes/Mac Data/x/다운로드 백업/kalli_test.mp4", True),
     ("폴더 이름이 일반적이면 한 단계 위를 본다",
      "/Volumes/Mac Data/칼리/동영상/c.mp4", True),
     ("영문 일반 이름도 같다",
@@ -78,6 +91,19 @@ def main():
         print(f"{'✅' if got == want else '❌'} "
               f"{'채택' if got else '제외'}  {name}")
 
+    # 맥이 외장 드라이브에 만드는 '._이름' 짝은 영상이 아니다.
+    # 실제로 이것들이 10편 중 5편을 통째로 차지해 실패했다.
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        for n in ["C0026.MP4", "._C0026.MP4", ".hidden.mp4"]:
+            (Path(d) / n).write_bytes(b"x")
+        got = sorted(p.name for p in walk_videos(d))
+    if got != ["C0026.MP4"]:
+        bad.append(("._ 파일을 훑을 때 빼지 않는다", d, ["C0026.MP4"], got, []))
+        print("❌ ._ 파일 제외")
+    else:
+        print("✅ 맥이 만든 ._ 짝 파일은 영상으로 치지 않는다")
+
     # 주제 이름이 NFC 로 돌아오는지 — 원고 제목에 그대로 쓰인다
     t = theme_of(Path(unicodedata.normalize("NFD", "/x/조립 영상 제작/a.mp4")))
     if t != "조립 영상 제작":
@@ -92,7 +118,7 @@ def main():
         for name, p, want, got, hints in bad:
             print(f"  {name}\n    경로: {p}\n    기대: {want} / 실제: {got} / 힌트: {hints}")
         sys.exit(1)
-    print(f"{len(CASES) + 1}개 모두 통과")
+    print(f"{len(CASES) + 2}개 모두 통과")
 
 
 if __name__ == "__main__":

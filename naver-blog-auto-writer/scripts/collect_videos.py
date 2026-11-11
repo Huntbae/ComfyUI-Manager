@@ -51,6 +51,7 @@ from rebuild_images import _content_key  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SCAN_CACHE = ROOT / "state" / "video_scan.json"
+USED = ROOT / "state" / "video_used.json"
 VIDEOS = ROOT / "videos"
 PLAN = ROOT / "state" / "video_plan.json"
 
@@ -64,11 +65,26 @@ VIDEO_HINTS = [
     "실측 확인 영상", "차량주행", "탑승영상", "운행영상", "주행 test",
     "교육 동영상", "교육 관련 영상", "고프로", "송부 동영상", "동영상 임시 백업",
     # 스캔에서 제외 쪽에 있던 우리 폴더들.
-    "미래모빌리티포럼", "알루미늄 차체", "공도주행", "시승회", "레이싱파크",
+    "알루미늄 차체", "공도주행", "시승회",
 ]
 
+# 파일 이름에서는 이것만 본다 — 우리 제품에만 붙는 이름.
+#
+# 폴더 이름과 달리 파일 이름은 남의 영상에도 그럴듯하게 붙는다. 내려받은 영상은
+# 제목이 곧 파일 이름이라 'CycleKart racing.mp4' 같은 이름을 갖는다. 실제 스캔에서
+# 'Kart Racing'·'모빌리티 관련 동영상' 폴더가 파일 이름의 cycle kart 로 채택됐다.
+# 사이클카트는 미국에서 시작된 취미의 이름이지 우리 제품 이름이 아니다.
+# '운행영상'·'조립 영상' 같은 말도 누구의 영상에나 붙는다.
+BRAND_HINTS = ["칼리", "kalli", "newtro", "뉴트로", "에듀카트", "edukart", "edu-kart"]
+
 # 남의 영상 — 참조용으로 모아둔 것들. 사진에서와 같은 이유로 제외한다.
-EXCLUDE_HINTS = ["참고동영상", "참고 동영상", "참조", "reference", "레퍼런스", "벤치마"]
+#
+# '미래모빌리티포럼'·'발표영상': 포럼 발표에 쓰려고 모은 남의 영상이다.
+# 실제로 'Airbus debuts a concept car…', 'Air-Train', 'Floating Solar Islands' 가
+# 그 폴더에서 편에 배정됐다. 올라가지 않은 것은 운이었다 (그 파일들이 마침
+# 읽을 수 없는 ._ 파일이었다). 처음에 이 폴더 이름을 채택 힌트에 넣은 것이 잘못이었다.
+EXCLUDE_HINTS = ["참고동영상", "참고 동영상", "참조", "reference", "레퍼런스", "벤치마",
+                 "미래모빌리티포럼", "발표영상", "칼리그라"]
 
 # 한 편에 넣을 영상 수. 1편에 하나면 편수가 너무 많고,
 # 넷 이상이면 한 편이 너무 무겁다(업로드·인코딩 시간).
@@ -149,6 +165,13 @@ def walk_videos(root, max_depth=14):
             and not d.lower().endswith(SKIP_DIR_SUFFIXES)
         ]
         for fn in filenames:
+            # 점으로 시작하는 파일은 영상이 아니다. 맥은 exFAT·FAT 외장 드라이브에
+            # 파일마다 '._이름' 이라는 4KB 짜리 짝을 만든다(확장속성 보관용).
+            # 확장자가 같아서 영상으로 잡혔고, 이름순으로 맨 앞에 오는 바람에
+            # 한 편에 들어갈 세 개를 전부 차지했다. 실제로 10편 중 5편이 이것만
+            # 배정받아 통째로 실패했다 ("Invalid data found").
+            if fn.startswith("."):
+                continue
             if Path(fn).suffix.lower() in VID_EXTS:
                 yield Path(dirpath) / fn
 
@@ -202,9 +225,15 @@ def matched_hints(path):
     한 단계 위까지 본다 — '칼리/동영상/a.mp4' 는 살리고
     '칼리/Photos-001/a.mov' 와 '칼리/카메라 촬영_홍성욱/a.mp4' 는 버린다.
     """
-    own = _nospace(norm(Path(path).parent.name))
-    t = tail(path, 3 if own in GENERIC_DIRS else 2)
-    return [h for h in VIDEO_HINTS if _nospace(norm(h)) in t]
+    p = Path(path)
+    own = _nospace(norm(p.parent.name))
+    folder = own
+    if own in GENERIC_DIRS:
+        folder = _nospace(norm(p.parent.parent.name)) + "/" + own
+    fname = _nospace(norm(p.name))
+    hits = [h for h in VIDEO_HINTS if _nospace(norm(h)) in folder]
+    hits += [h for h in BRAND_HINTS if _nospace(norm(h)) in fname and h not in hits]
+    return hits
 
 
 def is_ours(path):
@@ -216,6 +245,17 @@ def is_ours(path):
         return False
     # 채택은 가까운 데서만 본다.
     return bool(matched_hints(path))
+
+
+# 이보다 짧으면 영상으로 치지 않는다. 실제로 0.1~0.2초짜리 파일 셋이 한 편을
+# 이뤄 올라갔다. 액션캠이 남긴 조각이거나 복사가 끊긴 파일이다.
+MIN_SECONDS = 3
+
+
+def usable(path, meta):
+    """올릴 만한 영상인가. meta 는 {경로: 길이(초) 또는 None} — 스캔 때 잰 값."""
+    sec = meta.get(str(path))
+    return sec is not None and sec >= MIN_SECONDS
 
 
 def theme_of(path):
@@ -347,7 +387,8 @@ def main():
     # 실제로 만들 때마다 그 몇 분을 다시 쓸 이유가 없다. 하루 안의 결과는 다시 쓴다.
     # 채택 규칙(힌트)이 바뀌면 결과도 달라지므로 규칙의 지문을 같이 적어둔다.
     cache_key = hashlib.md5(json.dumps(
-        [sorted(str(r) for _l, r in roots), VIDEO_HINTS, EXCLUDE_HINTS, sorted(GENERIC_DIRS)],
+        ["v3", sorted(str(r) for _l, r in roots), VIDEO_HINTS, BRAND_HINTS, EXCLUDE_HINTS,
+         sorted(GENERIC_DIRS)],
         ensure_ascii=False).encode()).hexdigest()
     cached = None
     if not args.rescan and SCAN_CACHE.exists():
@@ -363,7 +404,7 @@ def main():
         skipped, rejected = cached["skipped"], cached["rejected"]
         print(f"\n지난 스캔 결과를 씁니다 ({int((time.time() - cached['at']) / 60)}분 전, "
               f"영상 {len(vids)}개). 다시 훑으려면 --rescan")
-        return finish(args, vids, skipped, rejected)
+        return finish(args, vids, skipped, rejected, cached.get("meta") or {})
 
     found, skipped = [], 0
     # 걸러진 영상이 어느 폴더에 있었는지 센다.
@@ -426,19 +467,107 @@ def main():
         if now - last >= 15:
             print(f"      … {i}/{len(found)}", flush=True)
             last = now
+    # 길이를 잰다. 깨진 파일과 너무 짧은 조각을 편에 배정하기 전에 걸러야 한다.
+    # 배정한 뒤에 실패하면 그 편이 비거나 통째로 사라진다.
+    meta = {}
+    if vids:
+        print(f"\n영상 길이 확인 중 ({len(vids)}개)…", flush=True)
+    last = time.monotonic()
+    for i, v in enumerate(vids, 1):
+        info = probe(v)
+        meta[str(v)] = info["sec"] if info and info.get("w") else None
+        now = time.monotonic()
+        if now - last >= 15:
+            print(f"      … {i}/{len(vids)}", flush=True)
+            last = now
     try:
         SCAN_CACHE.parent.mkdir(parents=True, exist_ok=True)
         SCAN_CACHE.write_text(json.dumps({
             "key": cache_key, "at": time.time(), "vids": [str(v) for v in vids],
-            "skipped": skipped, "rejected": rejected,
+            "skipped": skipped, "rejected": rejected, "meta": meta,
         }, ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
-    return finish(args, vids, skipped, rejected)
+    return finish(args, vids, skipped, rejected, meta)
 
 
-def finish(args, vids, skipped, rejected):
+def load_used():
+    try:
+        d = json.loads(USED.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        d = {}
+    d.setdefault("done", [])
+    d.setdefault("sources", [])
+    d.setdefault("keys", [])
+    d.setdefault("titles", {})
+    d.setdefault("last_no", 0)
+    return d
+
+
+def sync_used():
+    """지난 계획 가운데 실제로 올라간 편의 영상을 '쓴 것'으로 적어둔다.
+
+    이게 없으면 다시 돌릴 때마다 같은 폴더의 같은 앞쪽 영상이 또 뽑힌다.
+    편 번호가 달라지면 파일 이름도 달라져서, 이미 올린 영상이 새 글로 한 번 더
+    올라간다. 올라갔는지는 진행 기록(progress.json)이 말해준다 — 계획에 있었다는
+    것만으로 쓴 것으로 치지 않는다. 올리다 실패한 편의 영상은 다시 쓸 수 있어야 한다.
+    """
+    import make_video_articles as mva
+    led = load_used()
+    try:
+        plan = json.loads(PLAN.read_text(encoding="utf-8"))
+        posted = json.loads((ROOT / "state" / "progress.json").read_text(encoding="utf-8")).get("posted", [])
+    except (OSError, ValueError):
+        return led
+    posted = {unicodedata.normalize("NFC", x) for x in posted}
+    entries = plan.get("articles") or []
+    names = [e.get("article") for e in entries]
+    if not all(names):                      # 이름을 적어두기 전에 만든 계획
+        names = mva.article_names(entries, 1)
+    for e, name in zip(entries, names):
+        name = unicodedata.normalize("NFC", name)
+        if name not in posted or name in led["done"]:
+            continue
+        led["done"].append(name)
+        led["sources"] += [v["source"] for v in e["videos"]]
+        # 경로만 적어두면 같은 영상의 사본이 다른 폴더에 있을 때 못 알아본다.
+        # 이 드라이브에는 사본이 많다 (채택 1,509개 중 425개가 중복이었다).
+        for v in e["videos"]:
+            k = _content_key(Path(v["source"]))
+            if k and k not in led["keys"]:
+                led["keys"].append(k)
+        base = e.get("base") or mva.base_title(e)
+        led["titles"][base] = led["titles"].get(base, 0) + 1
+        m = re.match(r"(\d+)_", name)
+        if m:
+            led["last_no"] = max(led["last_no"], int(m.group(1)))
+    try:
+        USED.parent.mkdir(parents=True, exist_ok=True)
+        USED.write_text(json.dumps(led, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return led
+
+
+def finish(args, vids, skipped, rejected, meta):
     """스캔 결과로 계획을 세우고 영상을 만든다."""
+    total = len(vids)
+    bad = [v for v in vids if not usable(v, meta)]
+    vids = [v for v in vids if usable(v, meta)]
+    led = sync_used()
+    used, used_keys = set(led["sources"]), set(led["keys"])
+
+    def was_used(v):
+        return str(v) in used or (bool(used_keys) and _content_key(v) in used_keys)
+
+    again = [v for v in vids if was_used(v)]
+    vids = [v for v in vids if not was_used(v)]
+    if bad or again:
+        print(f"\n채택된 {total}개 가운데")
+        if bad:
+            print(f"  {len(bad):3}개 제외 — 읽을 수 없거나 {MIN_SECONDS}초보다 짧음")
+        if again:
+            print(f"  {len(again):3}개 제외 — 이미 올린 편에 쓴 영상")
     if args.limit:
         vids = vids[:args.limit]
 

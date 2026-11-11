@@ -289,7 +289,34 @@ def slug(s):
     return s[:24] or "영상"
 
 
+def base_title(entry):
+    """번호를 붙이기 전의 제목. 같은 제목이 몇 번 나왔는지 세는 열쇠다."""
+    theme = nfc(entry["theme"])
+    product = product_of(theme, [v["source"] for v in entry["videos"]])
+    return pick(product, kind_of(theme))["title"]
+
+
+def article_names(entries, start):
+    """편마다 원고 파일 이름. start 번부터 매긴다.
+
+    collect_videos 도 이 규칙을 쓴다 — 어느 편이 올라갔는지를 파일 이름으로
+    진행 기록과 맞춰 보기 때문이다. 규칙을 한 곳에만 둔다.
+    """
+    counts, seen, out = {}, {}, []
+    for e in entries:
+        th = nfc(e["theme"])
+        counts[th] = counts.get(th, 0) + 1
+    for i, e in enumerate(entries, start):
+        th = nfc(e["theme"])
+        seen[th] = seen.get(th, 0) + 1
+        suffix = "" if counts[th] == 1 else f"_{seen[th]}"
+        out.append(f"{i:02d}_영상_{slug(th)}{suffix}.txt")
+    return out
+
+
 def build(entry, part, parts):
+    """part: 이 제목으로 몇 번째 글인가 (지난번에 올린 것까지 센다).
+    parts: 이 제목의 글이 모두 몇 편인가 (1이면 번호를 붙이지 않는다)."""
     theme = nfc(entry["theme"])
     vids = entry["videos"]
     product = product_of(theme, [v["source"] for v in vids])
@@ -298,7 +325,9 @@ def build(entry, part, parts):
 
     title = f"{HEAD} {t['title']}"
     if parts > 1:
-        title = f"{title} ({part}/{parts})"
+        # (2/3) 이 아니라 (2) 로 붙인다. 다음에 더 올리면 전체 편수가 달라져
+        # 먼저 올린 글의 '/3' 이 틀린 숫자가 된다.
+        title = f"{title} ({part})"
 
     lines = [title, "", t["hook"], ""]
 
@@ -348,22 +377,28 @@ def main():
     # 같은 제목이 여러 편이면 (1/3) 을 붙인다. 주제(폴더)가 달라도 제목이
     # 같아질 수 있다 — '칼리' 폴더와 'Kalli' 폴더는 같은 제목을 받는다.
     # 그래서 폴더가 아니라 제목으로 센다.
-    base = []
-    for e in entries:
-        theme = nfc(e["theme"])
-        product = product_of(theme, [v["source"] for v in e["videos"]])
-        base.append(pick(product, kind_of(theme))["title"])
-    totals = {}
+    #
+    # 지난번에 올린 것도 센다. 다시 돌려 같은 종류의 글을 더 만들면 제목이
+    # 먼저 올린 글과 똑같아진다. 번호는 이어서 붙인다.
+    try:
+        led = json.loads((ROOT / "state" / "video_used.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        led = {}
+    before = led.get("titles") or {}
+    start = int(led.get("last_no") or 0) + 1
+
+    base = [base_title(e) for e in entries]
+    totals = dict(before)
     for b in base:
         totals[b] = totals.get(b, 0) + 1
+    names = article_names(entries, start)
 
-    seen, per_theme, made = {}, {}, []
-    for e, b in zip(entries, base):
+    seen, made = dict(before), []
+    for e, b, name in zip(entries, base, names):
         seen[b] = seen.get(b, 0) + 1
         title, body, meta = build(e, seen[b], totals[b])
-        th = nfc(e["theme"])
-        per_theme[th] = per_theme.get(th, 0) + 1
-        made.append((th, per_theme[th], title, body, len(e["videos"]), meta))
+        made.append((nfc(e["theme"]), name, title, body, len(e["videos"]), meta))
+        e["article"], e["base"] = name, b
 
     print(f"동영상 원고 {len(made)}편\n")
     for i, (th, _n, title, body, nv, meta) in enumerate(made, 1):
@@ -402,12 +437,11 @@ def main():
     if removed:
         print(f"지난 동영상 원고 {removed}편은 새로 만듭니다.")
 
-    counts = {}
-    for th, *_ in made:
-        counts[th] = counts.get(th, 0) + 1
-    for i, (th, n, _title, body, _nv, _meta) in enumerate(made, 1):
-        name = f"{i:02d}_영상_{slug(th)}{'' if counts[th] == 1 else f'_{n}'}.txt"
+    for _th, name, _title, body, _nv, _meta in made:
         (ARTICLES / name).write_text(body, encoding="utf-8")
+    # 어느 편이 어느 파일인지 계획에 적어둔다. 다음에 영상을 모을 때, 올라간 편의
+    # 영상을 다시 쓰지 않으려면 이 이름으로 진행 기록과 맞춰 봐야 한다.
+    PLAN.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n원고 {len(made)}편 → {ARTICLES}")
     print("다음: kart preview 로 찍힐 모양을 보고, kart next 로 한 편 올려보세요.")
 

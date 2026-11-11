@@ -66,11 +66,22 @@ python3 scripts/make_video_articles.py || fail "원고 만들기"
 step "4/4  네이버에 임시저장"
 # --no-sync: 이 기기에서는 git 푸시가 아이디·비밀번호를 물어 멈춘다.
 # 한 편을 먼저 올려 본다. 되면 나머지를 이어서 올린다.
+# 올릴 것이 있는지 먼저 본다. 예전에는 올릴 것이 없어도 next 가 0 으로 끝나서
+# "✅ 첫 편이 올라갔습니다"를 찍었다. 아무것도 안 올리고 올렸다고 말한 것이다.
+LEFT="$(node index.js status 2>/dev/null | sed -n 's/.*남은 \([0-9][0-9]*\)편.*/\1/p' | head -1)"
+if [ "${LEFT:-0}" = "0" ]; then
+  echo "새로 올릴 원고가 없습니다. 이번 실행에서는 아무것도 올리지 않았습니다."
+  echo "(준비된 영상이 모두 이미 올린 편의 것이거나, 쓸 수 있는 영상이 남지 않았습니다)"
+  exit 0
+fi
+echo "새로 올릴 원고 ${LEFT}편"
 node index.js next --no-sync || fail "첫 편 올리기"
 
-echo
-echo "✅ 첫 편이 올라갔습니다. 나머지를 이어서 올립니다 (편 사이 90초)."
-node index.js all --no-sync || fail "나머지 올리기"
+if [ "$LEFT" -gt 1 ]; then
+  echo
+  echo "✅ 첫 편이 올라갔습니다. 나머지 $((LEFT - 1))편을 이어서 올립니다 (편 사이 90초)."
+  node index.js all --no-sync || fail "나머지 올리기"
+fi
 
 echo
 echo "════════ 끝 ════════"

@@ -26,3 +26,4 @@ images_card/
 videos/
 state/video_plan.json
 state/video_scan.json
+state/video_used.json
