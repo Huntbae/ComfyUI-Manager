@@ -35,7 +35,7 @@ kart 사용법 (어느 폴더에서든 실행 가능)
     kart videos [옵션]   동영상 모으기 + BGM 입히기 (원본 소리는 덮는다)
       --scan-only        어디에 몇 개 있는지만 (못 잡은 폴더 이름도 보여준다)
       --dry-run          편별 배정 계획만
-      --bgm <파일>       쓸 음원 (기본: music/bgm_quiet_90s.mp3)
+      --bgm <파일>       쓸 음원 (기본: auto — 영상 종류에 맞는 곡을 고른다)
       --keep-audio       원본 소리를 남긴다 (사람 목소리가 공개될 수 있다)
       --src <경로>       볼 폴더를 직접 추가 · --only-src 면 그것만
       --max-articles N   N편만 만든다 (주제를 돌아가며 뽑음)
@@ -66,7 +66,7 @@ TXT
             case " $* " in
               *" --bgm "*|*" --keep-audio "*|*" --scan-only "*|*" --dry-run "*)
                 python3 scripts/collect_videos.py "$@" ;;
-              *) python3 scripts/collect_videos.py --bgm music/bgm_quiet_90s.mp3 "$@" ;;
+              *) python3 scripts/collect_videos.py --bgm auto "$@" ;;
             esac ;;
   vposts)   python3 scripts/make_video_articles.py "$@" ;;
   vgo)      bash scripts/vgo.sh "$@" ;;

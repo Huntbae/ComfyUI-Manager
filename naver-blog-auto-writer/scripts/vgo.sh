@@ -57,7 +57,7 @@ if ! node index.js doctor --video; then
 fi
 
 step "2/4  동영상 모으기 + 배경음악 (${N}편)"
-python3 scripts/collect_videos.py --bgm music/bgm_quiet_90s.mp3 --max-articles "$N" "$@" \
+python3 scripts/collect_videos.py --bgm auto --max-articles "$N" "$@" \
   || fail "동영상 모으기"
 
 step "3/4  원고 만들기"

@@ -315,7 +315,31 @@ def pick_articles(articles, cap):
     return out
 
 
-def mix_bgm(src, dst, bgm, exe, keep_audio=False):
+# 영상의 종류 → 배경음악. 종류는 폴더 이름이 말해주는 만큼만 안다
+# (make_video_articles.kind_of). 영상을 보고 고르는 것이 아니다.
+#   달리는 영상에는 빠른 곡, 만드는 영상에는 통통 튀는 곡,
+#   교육에는 따뜻한 곡, 그 밖에는 담담한 곡.
+# 곡은 scripts/make_bgm.py 가 직접 작곡·합성한 것이다.
+MUSIC = ROOT / "music"
+BGM_BY_KIND = {
+    "주행": "bgm_drive.mp3", "공도": "bgm_drive.mp3", "시승": "bgm_drive.mp3",
+    "조립": "bgm_build.mp3",
+    "교육": "bgm_learn.mp3",
+}
+BGM_DEFAULT = "bgm_story.mp3"
+
+
+def bgm_for(theme):
+    """이 주제(폴더)에 붙일 곡. 파일이 없으면 예전의 조용한 패드로 물러난다."""
+    import make_video_articles as mva
+    name = BGM_BY_KIND.get(mva.kind_of(theme), BGM_DEFAULT)
+    for cand in (MUSIC / name, MUSIC / BGM_DEFAULT, MUSIC / "bgm_quiet_90s.mp3"):
+        if cand.exists():
+            return cand
+    return None
+
+
+def mix_bgm(src, dst, bgm, exe, keep_audio=False, seconds=None):
     """영상을 규격에 맞추고 BGM을 깐다. 원본 소리는 덮는다.
 
     원본 소리를 남기지 않는 이유: 교육·회의 영상에 사람 목소리가 들어 있다.
@@ -344,8 +368,15 @@ def mix_bgm(src, dst, bgm, exe, keep_audio=False):
         # BGM 이 유일한 소리라 많이 줄일 이유가 없다. 음원 자체를 -18 LUFS 로
         # 맞춰 뒀으므로 여기서는 살짝만 손댄다. 예전에는 0.35(-9dB)를 걸어
         # 거의 안 들렸다.
+        #
+        # 영상이 끝나는 자리에서 음악이 뚝 끊기지 않게 마지막 1.5초에 걸쳐 줄인다.
+        # 멜로디가 있는 곡은 중간에서 잘리면 조용한 패드보다 훨씬 거슬린다.
+        af = "volume=0.9"
+        if seconds and seconds > 4:
+            end = min(seconds, MAX_SECONDS)
+            af += f",afade=t=out:st={end - 1.5:.2f}:d=1.5"
         cmd += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "128k",
-                "-af", "volume=0.9", "-shortest"]
+                "-af", af, "-shortest"]
     elif keep_audio:
         cmd += ["-map", "0:v:0", "-map", "0:a:0?", "-c:a", "aac", "-b:a", "128k"]
     else:
@@ -622,7 +653,9 @@ def finish(args, vids, skipped, rejected, meta):
         print("\n⚠️  --bgm 이 없어 소리를 뺀 채로 만듭니다.")
         print("    교육·회의 영상에는 사람 목소리가 들어 있어, 그대로 올리면")
         print("    목소리까지 공개됩니다. BGM 을 준 뒤 다시 돌리는 편이 낫습니다.")
-    bgm = Path(args.bgm).expanduser() if args.bgm else None
+    # --bgm auto: 편마다 종류에 맞는 곡을 고른다. 파일을 주면 전부 그 곡으로 한다.
+    auto = (args.bgm or "").strip().lower() == "auto"
+    bgm = None if auto else (Path(args.bgm).expanduser() if args.bgm else None)
     if bgm and not bgm.exists():
         sys.exit(f"BGM 파일이 없습니다: {bgm}")
 
@@ -638,7 +671,8 @@ def finish(args, vids, skipped, rejected, meta):
         for v in a["videos"]:
             n += 1
             dst = VIDEOS / f"kalli_v{n:02d}.mp4"
-            ok, err = mix_bgm(v, dst, bgm, exe, args.keep_audio)
+            track = bgm_for(a["theme"]) if auto else bgm
+            ok, err = mix_bgm(v, dst, track, exe, args.keep_audio, seconds=meta.get(str(v)))
             if not ok:
                 failed.append((v.name, err))
                 continue
@@ -650,13 +684,16 @@ def finish(args, vids, skipped, rejected, meta):
                 "sec": info.get("sec"),
                 "mb": round(dst.stat().st_size / 1e6, 1),
             })
-            print(f"  {dst.name}  ←  {v.name}  ({entry['videos'][-1]['mb']}MB)")
+            if track and not args.keep_audio:
+                entry["videos"][-1]["bgm"] = track.name
+            note = f" · {track.stem.replace('bgm_', '♪ ')}" if track and not args.keep_audio else ""
+            print(f"  {dst.name}  ←  {v.name}  ({entry['videos'][-1]['mb']}MB{note})")
         if entry["videos"]:
             plan.append(entry)
 
     PLAN.parent.mkdir(parents=True, exist_ok=True)
     PLAN.write_text(json.dumps({
-        "bgm": str(bgm) if bgm else None,
+        "bgm": "auto (편마다 종류에 맞는 곡)" if auto else (str(bgm) if bgm else None),
         "audio": "원본 유지" if args.keep_audio else ("BGM" if bgm else "무음"),
         "articles": plan,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
