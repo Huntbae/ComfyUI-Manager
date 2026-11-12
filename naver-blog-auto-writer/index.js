@@ -228,10 +228,27 @@ const headfulOn = () => !flag('headless');
     let done = 0;
     for (let i = 1; i <= want; i += 1) {
       console.log(`${'─'.repeat(56)}\n[${i}/${want}]`);
-      const r = spawnSync(process.execPath, [__filename, 'next', ...passthru], { stdio: 'inherit' });
+      // 한 번 실패했다고 멈추지 않는다. 같은 편을 두 번까지 다시 시도한다.
+      //
+      // 맥북 덮개를 덮으면 잠들고, 다시 열면 올리던 편은 연결이 끊겨 실패한다.
+      // 예전에는 거기서 전체가 멈춰서, 깨어난 뒤에 사람이 다시 돌려야 했다.
+      // 실패한 편은 진행 기록에 남지 않으므로 다시 시도해도 건너뛰지 않는다.
+      //
+      // 다만 저장 확인이 안 된 실패(종료코드 2)와 로그인(3)은 다시 시도하지 않는다.
+      // 앞의 것은 이미 저장됐을 수 있어 초안이 둘이 되고, 뒤의 것은 사람이 해야 한다.
+      const r = { status: require('./src/retry').runWithRetry(
+        () => spawnSync(process.execPath, [__filename, 'next', ...passthru], { stdio: 'inherit' }).status,
+        {
+          tries: 3,
+          onRetry: (n) => console.log(`\n↻ 이 편을 다시 시도합니다 (${n}/3). 30초 뒤에 시작합니다.`),
+          wait: () => spawnSync(process.execPath, ['-e', 'setTimeout(()=>{}, 30000)']),
+        },
+      ) };
       if (r.status !== 0) {
         console.error(`\n중단합니다. ${done}편 올렸고 ${i}번째에서 막혔습니다.`);
-        console.error('위 오류를 먼저 해결한 뒤 kart all 을 다시 실행하세요.');
+        if (r.status === 2) console.error('저장 확인이 안 됐습니다. 네이버 임시저장 목록에 이 글이 있는지 먼저 확인하세요.');
+        else if (r.status === 3) console.error('로그인이 필요합니다: kart login');
+        console.error('해결한 뒤 kart all --no-sync 를 다시 실행하면 이어서 올립니다.');
         process.exit(1);
       }
       done += 1;
@@ -418,7 +435,12 @@ const headfulOn = () => !flag('headless');
     if (r.evidence || (r.hint || '').includes('증거')) {
       console.error('   증거 폴더의 report.txt 와 screen.png 를 보내주시면 원인을 잡겠습니다.');
     }
-    process.exit(1);
+    // 종료코드로 실패의 종류를 알린다. kart all 이 이것을 보고 다시 시도할지 정한다.
+    //   2 — 저장을 눌렀는데 확인이 안 됐다. 이미 저장됐을 수 있어 다시 쓰면 초안이 둘이 된다.
+    //   3 — 로그인이 필요하다. 사람이 해야 한다.
+    //   1 — 그 밖 (창이 닫힘, 업로드가 끊김, 에디터가 안 뜸 …). 다시 해 볼 만하다.
+    const code = /^save_/.test(r.reason || '') ? 2 : (r.reason === 'need_login' ? 3 : 1);
+    process.exit(code);
   }
 
   console.error('알 수 없는 명령입니다. status / reset / preview / topic / login / doctor / next(다음) / all(전부) / cookies / post 중 하나를 사용하세요.');
