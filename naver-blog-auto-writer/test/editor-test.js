@@ -27,11 +27,19 @@ function makeVideoFixture() {
 
 (async () => {
   const browser = await chromium.launch({ executablePath: findChromium(), headless: true });
-  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false, hideCount = false, staleNotice = false, iconOnlyAdd = false } = {}) => {
+  const run = async (label, { content, slowUpload, breakSave = false, breakTitle = false, wipeAt = 0, popupAt = 0, swallowFirst = false, hideCount = false, staleNotice = false, iconOnlyAdd = false, saturated = false, oldDraft = false, narrowTitle = false, title = null } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(FAKE);
     if (breakSave) await page.evaluate(() => { window.BREAK_SAVE = true; });
+    // 임시저장이 100개를 넘어 개수가 "99+" 로 멈춘 상황 재현.
+    if (saturated) await page.evaluate(() => { saturate(); });
+    // 같은 제목의 예전 글이 목록에 이미 있는 상황 (어제 저장된 것).
+    if (oldDraft) await page.evaluate((t) => { addDraftRow(t, stampNow(-1440)); }, oldDraft);
+    // 제목칸이 좁아 긴 제목이 여러 줄로 넘어가는 상황 재현.
+    if (narrowTitle) {
+      await page.addStyleTag({ content: '.se-section-documentTitle{width:170px;font-size:20px}' });
+    }
     // 업로드 창의 추가 버튼에 글자가 없는 경우(아이콘만) 재현.
     // 글자로는 못 찾으니 파일 입력칸에 직접 넣는 길로 가야 한다.
     if (iconOnlyAdd) {
@@ -65,7 +73,7 @@ function makeVideoFixture() {
     if (swallowFirst) await page.evaluate(() => { window.SWALLOW_FIRST = true; });
     if (slowUpload) await page.evaluate((v) => { window.VIDEO_UPLOAD_MS = v; }, slowUpload);
     const r = await fillEditor(page, {
-      title: '테스트 제목입니다',
+      title: title || '테스트 제목입니다',
       content: content || '**굵은 소제목**\n첫 문단입니다.\n- 목록 항목\n\n| | 가 | 나 |\n|---|---|---|\n| 값 | 1 | 2 |\n\n[[img:kalli_01.png|사진 설명 한 줄]]\n둘째 문단입니다.',
       imagedir: path.join(__dirname, '..', 'images'),
     });
@@ -115,6 +123,22 @@ function makeVideoFixture() {
   const m = await run('추가 버튼에 글자가 없음', {
     content: '첫 문단\n[[video:test_v01.mp4|2024년 6월, 제작 현장]]', iconOnlyAdd: true,
   });
+  // ── 임시저장이 100개를 넘은 뒤 ───────────────────────────────
+  // 네이버는 개수를 "99+" 로만 보여준다. 저장해도 숫자가 그대로라 개수로는 확인이
+  // 안 된다. 실제로 "저장 99+ → 저장 99+" 로 실패 처리돼 올리기가 멈췄다.
+  const SIMPLE = '첫 문단\n둘째 문단';
+  const n = await run('99+ 에서 저장이 됨', { content: SIMPLE, saturated: true });
+  const o = await run('99+ 에서 저장이 안 됨', { content: SIMPLE, saturated: true, breakSave: true });
+  // 같은 제목의 예전 글이 목록에 있어도, 그것을 새로 저장된 글로 치면 안 된다
+  const q = await run('99+ 에서 저장이 안 됨 + 같은 제목의 예전 글이 있음', {
+    content: SIMPLE, saturated: true, breakSave: true, oldDraft: '테스트 제목입니다',
+  });
+  // ── 긴 제목이 두 줄로 넘어갈 때 ──────────────────────────────
+  // 첫 글자가 먹혀 제목을 고쳐 써야 하는데, 지울 때 첫 줄만 지워졌다.
+  const LONG = '[동영상] 에듀카트 조립 영상 — 교육용 전기카트, 직접 만들면 이렇게 됩니다 (3)';
+  const w = await run('두 줄 제목 + 첫 글자가 먹힘', {
+    content: SIMPLE, narrowTitle: true, swallowFirst: true, title: LONG,
+  });
   await browser.close();
 
   // 마크다운이 평문으로 바뀌는지 (네이버는 마크다운을 해석하지 않는다)
@@ -154,6 +178,10 @@ function makeVideoFixture() {
     ['개수를 못 읽어도 묵은 안내로 통과하지 않나', k.ok === false],
     ['개수를 못 읽어도 새 안내는 성공으로 보나', l.ok === true],
     ['추가 버튼을 못 찾아도 파일 입력칸으로 올리나', m.ok === true && m.videoComponents === 1],
+    ['개수가 99+ 로 멈춰도 목록에서 저장을 확인하나', n.ok === true && n.verifiedBy === 'list'],
+    ['99+ 에서 저장이 안 됐으면 실패로 보나', o.ok === false && o.reason === 'save_not_confirmed'],
+    ['같은 제목의 예전 글을 새 글로 착각하지 않나', q.ok === false && q.reason === 'save_not_confirmed'],
+    ['두 줄로 넘어간 제목도 한 번에 고쳐 쓰나', w.ok === true && w.titleOnPage === LONG && w.attempts === 1],
     ['해시태그 줄의 첫 # 이 살아 있나', markdownToPlain('#에듀카트 #전기카트') === '#에듀카트 #전기카트'],
     ['제목 표시(# 제목)는 여전히 떼나', markdownToPlain('# 큰 제목') === '큰 제목'],
   ];

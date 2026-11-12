@@ -367,10 +367,50 @@ async function readSaveNotice(root) {
   }).catch(() => false);
 }
 
+// 임시저장 목록에서 이 제목으로 since("YYYY.MM.DD HH:MM") 이후에 저장된 줄의 수.
+// 읽지 못하면 null.
+async function countFreshDrafts(page, root, title, since) {
+  await openDraftList(page, root);
+  const n = await root.evaluate(({ w, from }) => {
+    const re = /\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}/g;
+    const norm = (e) => (e.innerText || '').replace(/\s+/g, ' ').trim();
+    const cands = [...document.querySelectorAll('*')].filter((e) => {
+      const t = norm(e);
+      if (!t.includes(w) || t.length > 300) return false;
+      const m = t.match(re);
+      return !!m && m.length === 1;
+    });
+    // 줄 하나가 여러 겹의 요소로 잡힌다. 가장 안쪽 것만 센다.
+    const set = new Set(cands);
+    const rows = cands.filter((e) => ![...e.querySelectorAll('*')].some((c) => set.has(c)));
+    return rows.filter((e) => (norm(e).match(re) || [''])[0] >= from).length;
+  }, { w: title.replace(/\s+/g, ' ').trim(), from: since }).catch(() => null);
+  await closeDraftList(page, root);
+  return n;
+}
+
 // 임시저장 — 누르고 끝내지 않고 저장됐는지 확인한다. 발행 버튼은 절대 누르지 않는다.
-async function tempSave(page, root, maxWaitMs = 20_000) {
+async function tempSave(page, root, maxWaitMs = 20_000, { title = '' } = {}) {
   await closeHelpPanel(page, root);
   const before = await readSaveState(root);
+
+  // 임시저장이 100개를 넘으면 네이버는 개수를 "99+" 로만 보여준다.
+  // 그때부터는 저장해도 숫자가 그대로라, 개수로는 저장을 확인할 수 없다.
+  // 실제로 "저장 99+ → 저장 99+" 로 실패 처리됐다 (글은 저장됐을 수 있는데).
+  // 그때는 임시저장 목록을 열어 이 제목의 새 글이 생겼는지를 본다.
+  // 같은 제목의 예전 글이 있을 수 있으므로 "방금 저장된 줄의 수"가 늘었는지로 본다.
+  const saturated = /\d\s*\+/.test(before.text || '');
+  let since = null;
+  let freshBefore = null;
+  if (saturated && title) {
+    // 서버 시계와 이 기기 시계가 조금 어긋날 수 있어 2분의 여유를 둔다.
+    since = await root.evaluate(() => {
+      const d = new Date(Date.now() - 120_000);
+      const p2 = (x) => String(x).padStart(2, '0');
+      return `${d.getFullYear()}.${p2(d.getMonth() + 1)}.${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+    }).catch(() => null);
+    if (since) freshBefore = await countFreshDrafts(page, root, title, since);
+  }
   // 클릭 전에 안내 문구가 이미 떠 있었는지 찍어둔다. 비교 대상이 없으면
   // 남아 있던 문구로 성공이라고 우기게 된다.
   const beforeNotice = await readSaveNotice(root);
@@ -399,6 +439,28 @@ async function tempSave(page, root, maxWaitMs = 20_000) {
   // 저장 개수는 3이었던 간극이 여기서 나왔다.
   //
   // 이제 클릭 전 상태를 찍어두고 없던 문구가 생긴 경우만 인정한다.
+  if (saturated) {
+    if (freshBefore !== null) {
+      for (let k = 0; k < 4; k += 1) {
+        await page.waitForTimeout(k === 0 ? 4_000 : 3_000);
+        const freshAfter = await countFreshDrafts(page, root, title, since);
+        if (freshAfter !== null && freshAfter > freshBefore) {
+          return { ok: true, how: 'list', before, after: await readSaveState(root) };
+        }
+      }
+    }
+    return {
+      ok: false,
+      reason: freshBefore === null ? 'save_unverifiable' : 'save_not_confirmed',
+      hintExtra: freshBefore === null
+        ? '임시저장 개수가 99+ 로 멈춰 있고 목록도 읽지 못했습니다.'
+        : '임시저장 개수가 99+ 로 멈춰 있어 목록을 봤지만 이 제목의 새 글이 없습니다. '
+          + '임시저장이 가득 찼을 수 있습니다 — 네이버에서 오래된 임시저장 글을 지워보세요.',
+      before,
+      after: await readSaveState(root),
+    };
+  }
+
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await page.waitForTimeout(1_000);
@@ -808,8 +870,16 @@ async function fillOnce(page, { title, content, images = [], imagedir = '', stam
     for (let k = 1; k <= 3; k += 1) {
       await titleBox.click();
       await page.waitForTimeout(500);
-      const cur = (await readDocState(root).catch(() => ({ title: '' }))).title;
-      if (cur) { // 앞 시도에서 잘못 들어간 글자를 지운다 (제목칸 안에서만)
+      // 앞 시도에서 잘못 들어간 글자를 지운다 (제목칸 안에서만).
+      //
+      // End 는 글의 끝이 아니라 **그 줄의 끝**으로 간다. 제목이 길어 두 줄로
+      // 넘어가면 첫 줄만 지워지고 둘째 줄이 남는다. 그 위에 제목을 다시 쳐서
+      // "…됩니다 (3)접 만들면 이렇게 됩니다 (3)면 이렇게 됩니다 (3)" 이 된 적이 있다.
+      // 한 번 지우고 끝내지 않고, 제목칸이 빌 때까지 되풀이한다.
+      for (let pass = 0; pass < 8; pass += 1) {
+        const cur = (await readDocState(root).catch(() => ({ title: '' }))).title;
+        if (!cur) break;
+        await titleBox.click({ timeout: 5_000 }).catch(() => {});
         await page.keyboard.press('End');
         for (let i = 0; i < cur.length + 5; i += 1) await page.keyboard.press('Backspace');
       }
@@ -956,7 +1026,7 @@ async function fillOnce(page, { title, content, images = [], imagedir = '', stam
 
     // 초안을 그 자리에서 고칠 때는 임시저장 개수가 늘지 않는다.
     // 그때는 목록에 찍힌 저장 시각이 바뀌었는지로 저장 여부를 확인한다.
-    const saved = await tempSave(page, root, stampBefore ? 8_000 : 20_000);
+    const saved = await tempSave(page, root, stampBefore ? 8_000 : 20_000, { title });
     if (!saved.ok && stampBefore) {
       const afterStamp = await readDraftStamp(page, root, title).catch(() => null);
       if (afterStamp && afterStamp !== stampBefore) {

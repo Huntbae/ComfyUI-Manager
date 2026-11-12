@@ -12,7 +12,14 @@
   <button data-name="video" class="se-video-toolbar-button" onclick="openVideoLayer()">동영상 동영상 추가</button>
   <button data-name="file" class="se-file-toolbar-button">파일 파일 추가</button>
   <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
+  <!-- 네이버는 임시저장 개수를 저장 버튼 옆의 별도 버튼에 그리고, 누르면 목록이 열린다.
+       100개를 넘으면 "99+" 로만 보여준다. 시험에서 SATURATED 를 켜면 그 상황이 된다. -->
+  <button data-click-area="tpb*s.count" id="cnt" style="display:none" onclick="toggleDrafts()"></button>
   <button data-click-area="tpb.publish">발행</button>
+</div>
+<div id="drafts" style="display:none;position:fixed;right:0;top:40px;background:#fff;border:1px solid #999;padding:8px;z-index:20">
+  <button aria-label="닫기" onclick="toggleDrafts()">x</button>
+  <ul id="dlist"></ul>
 </div>
 <!-- 네이버는 저장하면 안내를 띄운다. 개수를 못 읽는 스킨에서는 이것만이 증거다. -->
 <div id="toast"></div>
@@ -40,11 +47,32 @@ function blankDoc() {
 blankDoc();
 
 let n = 3;
+function stampNow(offsetMin){
+  const d = new Date(Date.now() + (offsetMin||0)*60000), p=(x)=>String(x).padStart(2,'0');
+  return d.getFullYear()+'.'+p(d.getMonth()+1)+'.'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function addDraftRow(title, stamp){
+  const li=document.createElement('li');
+  li.innerHTML='<a><span class="t"></span> <span class="d"></span></a>';
+  li.querySelector('.t').textContent=title; li.querySelector('.d').textContent=stamp;
+  document.getElementById('dlist').prepend(li);
+}
+function toggleDrafts(){
+  const d=document.getElementById('drafts'); d.style.display = d.style.display==='none' ? 'block' : 'none';
+}
+function saturate(){
+  // 임시저장이 100개를 넘은 상태: 저장 버튼에는 숫자가 없고 옆 버튼은 99+ 에서 멈춘다.
+  window.SATURATED = true;
+  document.getElementById('save').innerText='저장';
+  const c=document.getElementById('cnt'); c.style.display='inline'; c.innerText='99+';
+}
 function doSave(){
   if(window.BREAK_SAVE) return;
   n++;
-  document.getElementById('save').innerText='저장 '+n;
+  if(!window.SATURATED) document.getElementById('save').innerText='저장 '+n;
   document.getElementById('toast').innerText='임시저장되었습니다';
+  const t=(document.querySelector('.se-section-documentTitle .se-text-paragraph').innerText||'').trim();
+  addDraftRow(t, stampNow(0));
 }
 function openVideoLayer(){
   document.getElementById('vlayer').style.display='block';
