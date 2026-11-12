@@ -9,6 +9,7 @@
 #   kart vgo                 10편
 #   kart vgo 3               3편만
 #   kart vgo 10 --only-src --src "/Volumes/Mac Data"
+#   kart vgo 10 --redo ...   이미 올린 동영상 편까지 처음부터 다시
 #
 # 발행은 하지 않는다. 임시저장까지다.
 set -u
@@ -18,6 +19,15 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 N=10
 if [[ "${1:-}" =~ ^[0-9]+$ ]]; then N="$1"; shift; fi
+
+# --redo: 이미 올린 동영상 편의 기록을 지우고 처음부터 다시 만든다.
+# (새 배경음악으로 다시 올리고 싶을 때. 네이버의 지난 글은 직접 지워야 한다.)
+REDO=0
+ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--redo" ]; then REDO=1; else ARGS+=("$a"); fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 step() { echo; echo "════════ $1 ════════"; }
 
@@ -54,6 +64,11 @@ if ! node index.js doctor --video; then
     echo "❌ 로그인한 뒤에도 글쓰기 화면이 안 열립니다. 이 화면 전체를 보내주세요."
     exit 1
   }
+fi
+
+if [ "$REDO" = "1" ]; then
+  step "지난 동영상 편 기록 지우기 (--redo)"
+  python3 scripts/video_reset.py --yes || fail "기록 지우기"
 fi
 
 step "2/4  동영상 모으기 + 배경음악 (${N}편)"

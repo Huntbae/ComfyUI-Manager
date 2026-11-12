@@ -40,6 +40,8 @@ kart 사용법 (어느 폴더에서든 실행 가능)
       --src <경로>       볼 폴더를 직접 추가 · --only-src 면 그것만
       --max-articles N   N편만 만든다 (주제를 돌아가며 뽑음)
     kart vgo [편수]      동영상 편을 한 번에 끝까지 (확인→모으기→원고→임시저장)
+      --redo             이미 올린 동영상 편까지 처음부터 다시 (새 음악으로 재업로드)
+    kart vreset [--yes]  동영상 편 기록만 지우기 (사진 시리즈 기록은 그대로)
     kart vposts          그 영상으로 [동영상] 원고 만들기
     kart topic           유튜브에서 글감 선정
 
@@ -70,6 +72,7 @@ TXT
             esac ;;
   vposts)   python3 scripts/make_video_articles.py "$@" ;;
   vgo)      bash scripts/vgo.sh "$@" ;;
+  vreset)   python3 scripts/video_reset.py "$@" ;;
   test)     npm test --silent ;;
   check)    npm run --silent check ;;
   ffmpeg)   npm run --silent link-ffmpeg ;;
