@@ -1068,45 +1068,76 @@ async function writePost({
 }
 
 // 방식 B(권장): 로그인된 전용 크롬 프로필 재사용.
+// 창이 닫혀서 난 실패인가. 사람이 창을 닫았거나 크롬이 죽은 경우다.
+const CLOSED_RX = /has been closed|Target closed|browser has disconnected|Browser closed/i;
+
 async function writePostProfile({
   blogId, title, content, images = [], imagedir = '', headful = true, record = true, keepOpen = false,
 }) {
-  const { launchPersistent } = require('./browser');
-  // 브라우저 실행 실패는 여기서 잡아 문장으로 돌려준다.
-  // try 밖에 두면 playwright 스택 트레이스가 그대로 터져 나온다.
-  let context;
-  try {
-    ({ context } = await launchPersistent({ headful, record }));
-  } catch (e) {
-    return { ok: false, reason: 'launch_failed', hint: e.message.split('\n')[0] };
-  }
-  const page = context.pages()[0] || (await context.newPage());
-  try {
-    const opened = await openWriter(page, blogId, { loginWaitMs: headful ? 180_000 : 0 });
-    if (!opened.root) {
-      const dir = await dumpEvidence(page, null, `no-editor-${stamp()}`);
-      const diag = await diagnoseEntry(page).catch(() => null);
-      if (opened.where === 'need_login' || (diag && !diag.loggedIn)) {
-        return { ok: false, reason: 'need_login',
-          hint: `kart login 으로 이 프로필에 네이버 로그인을 해주세요. 증거: ${dir}` };
+  const { launchPersistent, closeKeepingLogin } = require('./browser');
+  // 크롬 창이 도중에 닫히면 창을 새로 띄워 처음부터 다시 쓴다.
+  //
+  // 예전에는 fillEditor 가 같은 창에서 재시도했다. 창이 이미 없으니 재시도도
+  // 그 자리에서 죽었고, 준비해 둔 열 편 가운데 한 편도 못 올리고 끝났다.
+  // 저장 전에 닫힌 것이라 초안이 중복될 일은 없다 — 저장이 확인된 뒤에는
+  // 여기로 돌아오지 않는다.
+  const LAUNCHES = 3;
+  for (let launchNo = 1; launchNo <= LAUNCHES; launchNo += 1) {
+    // 브라우저 실행 실패는 여기서 잡아 문장으로 돌려준다.
+    // try 밖에 두면 playwright 스택 트레이스가 그대로 터져 나온다.
+    let context;
+    try {
+      ({ context } = await launchPersistent({ headful, record }));
+    } catch (e) {
+      return { ok: false, reason: 'launch_failed', hint: e.message.split('\n')[0] };
+    }
+    const page = context.pages()[0] || (await context.newPage());
+    let closed = false;
+    try {
+      const opened = await openWriter(page, blogId, { loginWaitMs: headful ? 180_000 : 0 });
+      if (!opened.root && !page.isClosed()) {
+        const dir = await dumpEvidence(page, null, `no-editor-${stamp()}`);
+        const diag = await diagnoseEntry(page).catch(() => null);
+        if (opened.where === 'need_login' || (diag && !diag.loggedIn)) {
+          return { ok: false, reason: 'need_login',
+            hint: `kart login 으로 이 프로필에 네이버 로그인을 해주세요. 증거: ${dir}` };
+        }
+        return { ok: false, reason: 'editor_not_found',
+          hint: `글쓰기 화면을 ${opened.attempts}번 열어도 에디터가 안 떴습니다. ${diag ? diag.verdict : ''} 증거: ${dir}` };
       }
-      return { ok: false, reason: 'editor_not_found',
-        hint: `글쓰기 화면을 ${opened.attempts}번 열어도 에디터가 안 떴습니다. ${diag ? diag.verdict : ''} 증거: ${dir}` };
+      if (opened.root) {
+        const r = await fillEditor(page, { title, content, images, imagedir });
+        closed = !r.ok && (page.isClosed() || CLOSED_RX.test(`${r.reason || ''} ${r.hint || ''}`));
+        if (!closed) {
+          let video = null;
+          if (record) { try { video = (await page.video()?.path()) || null; } catch { video = null; } }
+          if (keepOpen) {
+            console.log('\n--keep-open: 창을 열어둡니다. 눈으로 확인한 뒤 Enter를 누르세요.');
+            await new Promise((res) => process.stdin.once('data', res));
+          }
+          return { ...r, saved: r.ok, published: false, video };
+        }
+      } else {
+        closed = true;
+      }
+    } catch (e) {
+      if (!(page.isClosed() || CLOSED_RX.test(e.message))) {
+        const dir = await dumpEvidence(page, null, `error-${stamp()}`);
+        return { ok: false, reason: 'error', hint: `${e.message.split('\n')[0]} / 증거: ${dir}` };
+      }
+      closed = true;
+    } finally {
+      await closeKeepingLogin(context).catch(() => {});
     }
-    const r = await fillEditor(page, { title, content, images, imagedir });
-    let video = null;
-    if (record) { try { video = (await page.video()?.path()) || null; } catch { video = null; } }
-    if (keepOpen) {
-      console.log('\n--keep-open: 창을 열어둡니다. 눈으로 확인한 뒤 Enter를 누르세요.');
-      await new Promise((res) => process.stdin.once('data', res));
+    if (closed && launchNo < LAUNCHES) {
+      console.log(`   ↻ 크롬 창이 닫혔습니다. 새로 띄워 처음부터 다시 씁니다 (${launchNo + 1}/${LAUNCHES}).`);
+      console.log('     뜨는 크롬 창은 닫지 말고 그대로 두세요. 끝나면 스스로 닫힙니다.');
+      await new Promise((res) => setTimeout(res, 3_000));
     }
-    return { ...r, saved: r.ok, published: false, video };
-  } catch (e) {
-    const dir = await dumpEvidence(page, null, `error-${stamp()}`);
-    return { ok: false, reason: 'error', hint: `${e.message.split('\n')[0]} / 증거: ${dir}` };
-  } finally {
-    await require('./browser').closeKeepingLogin(context);
   }
+  return { ok: false, reason: 'browser_closed',
+    hint: `크롬 창이 ${LAUNCHES}번 연속으로 도중에 닫혔습니다. 창을 직접 닫지 않으셨다면 `
+      + '크롬이 죽고 있는 것입니다 — 다른 크롬 창을 모두 닫고 다시 돌려보세요.' };
 }
 
 

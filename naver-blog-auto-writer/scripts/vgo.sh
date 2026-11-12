@@ -48,6 +48,11 @@ fail() {
   show_evidence
   echo
   echo "이 터미널 화면을 처음부터 끝까지 그대로 보내주세요."
+  if [ "$1" = "첫 편 올리기" ] || [ "$1" = "나머지 올리기" ]; then
+    echo
+    echo "영상과 원고는 준비돼 있습니다. 다시 만들 필요 없이 올리기만 이어서 하려면:"
+    echo "    kart all --no-sync"
+  fi
   exit 1
 }
 
