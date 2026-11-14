@@ -324,6 +324,71 @@ const headfulOn = () => !flag('headless');
     return;
   }
 
+  // 클립에 올리고 게시한다. 사용자가 "바로 공개 게시"로 정했다 (블로그와 다르다).
+  // 목록은 kart clip plan 이 만든다 — 차량 영상만, 교육 현장 영상은 빠져 있다.
+  if (cmd === 'clip-go') {
+    const pathMod = require('path');
+    const { launchPersistent, closeKeepingLogin } = require('./src/browser');
+    const { clipUpload } = require('./src/clip');
+    const planPath = pathMod.join(__dirname, 'state', 'clip_plan.json');
+    const donePath = pathMod.join(__dirname, 'state', 'clip_done.json');
+    let items = [];
+    try { items = JSON.parse(fs.readFileSync(planPath, 'utf8')).items || []; } catch { /* 아래에서 안내 */ }
+    let done = { files: [], log: [] };
+    try { done = { files: [], log: [], ...JSON.parse(fs.readFileSync(donePath, 'utf8')) }; } catch { /* 처음 */ }
+    items = items.filter((it) => !done.files.includes(it.file) && fs.existsSync(it.path));
+    if (!items.length) {
+      console.log('클립에 올릴 영상이 없습니다. kart clip plan 으로 목록을 확인하세요.');
+      process.exit(0);
+    }
+    const asked = Number(process.argv[3]);
+    const want = Number.isFinite(asked) && asked > 0 ? Math.min(asked, items.length) : items.length;
+    const gap = Number(arg('delay')) > 0 ? Number(arg('delay')) : 60;
+    console.log(`클립 ${want}개를 올려 게시합니다 (남은 ${items.length}개 중). 사이에 ${gap}초씩 쉽니다.`);
+    console.log('⚠️  클립은 올리면 바로 공개됩니다.\n');
+    let ok = 0;
+    for (let i = 0; i < want; i += 1) {
+      const it = items[i];
+      console.log(`${'─'.repeat(56)}\n[${i + 1}/${want}] ${it.title}\n   ${it.file} · 폴더 '${it.theme}'`);
+      const { context } = await launchPersistent({ headful: headfulOn(), record: false });
+      const page = context.pages()[0] || (await context.newPage());
+      let r;
+      try {
+        r = await clipUpload(page, it);
+      } catch (e) {
+        r = { ok: false, reason: 'error', hint: e.message.split('\n')[0] };
+      } finally {
+        await closeKeepingLogin(context).catch(() => {});
+      }
+      if (!r.ok) {
+        console.error(`\n❌ 실패: ${r.reason}`);
+        if (r.hint) console.error(`   ${r.hint}`);
+        if (r.url) console.error(`   그때 주소: ${r.url}`);
+        if (r.text) console.error(`   화면 글자: "${r.text}"`);
+        if (r.dialogs && r.dialogs.length) console.error(`   알림창: ${r.dialogs.join(' / ')}`);
+        if (r.dump && r.dump.length) {
+          console.error('──── 그때 화면에 있던 것 ────');
+          for (const line of r.dump) console.error(line);
+        }
+        console.error(`\n${ok}개 올렸고 ${i + 1}번째에서 멈췄습니다. 이 화면 전체를 보내주세요.`);
+        process.exit(r.reason === 'publish_unverified' ? 2 : 1);
+      }
+      // 게시가 확인된 것만 적는다. 다시 돌려도 같은 영상이 두 번 올라가지 않게.
+      done.files.push(it.file);
+      done.log.push({ file: it.file, title: r.title, at: new Date().toISOString(), how: r.how });
+      fs.mkdirSync(pathMod.dirname(donePath), { recursive: true });
+      fs.writeFileSync(donePath, JSON.stringify(done, null, 1));
+      ok += 1;
+      console.log(`✅ 게시 확인 — ${r.title}`);
+      if (i < want - 1) {
+        console.log(`\n${gap}초 쉽니다...`);
+        await new Promise((res) => setTimeout(res, gap * 1000));
+      }
+    }
+    console.log(`\n${'─'.repeat(56)}\n✅ 클립 ${ok}개 게시 완료. clipcreators.naver.com 의 콘텐츠 목록에서 확인하세요.`);
+    process.exit(0);
+  }
+
   if (cmd === 'doctor') {
     const { loadConfig } = queue;
     const cfg = loadConfig();

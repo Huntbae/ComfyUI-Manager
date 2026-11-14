@@ -44,6 +44,7 @@ kart 사용법 (어느 폴더에서든 실행 가능)
     kart vreset [--yes]  동영상 편 기록만 지우기 (사진 시리즈 기록은 그대로)
     kart vposts          그 영상으로 [동영상] 원고 만들기
     kart clip plan       네이버 클립에 올릴 영상 목록 (차량 영상만)
+    kart clip go [N]     클립에 올려 게시 (올리면 바로 공개된다)
     kart clip doctor     클립 크리에이터 업로드 화면 구조 읽기 (게시하지 않음)
     kart topic           유튜브에서 글감 선정
 
@@ -81,7 +82,12 @@ TXT
               plan)   python3 scripts/clip_plan.py "$@" ;;
               doctor) python3 scripts/clip_plan.py >/dev/null 2>&1
                       node index.js clip-doctor "$@" ;;
+              go)     # 목록을 새로 만들고(올린 것은 빠진다) 올려서 게시한다
+                      python3 scripts/clip_plan.py || exit 1
+                      echo
+                      node index.js clip-go "$@" ;;
               *)      echo "kart clip plan      클립에 올릴 영상 목록 (차량 영상만, 교육 영상 제외)"
+                      echo "kart clip go [N]    클립에 올려 게시 (N개만. 올리면 바로 공개된다)"
                       echo "kart clip doctor    클립 크리에이터의 업로드 화면 구조 읽기 (게시하지 않음)" ;;
             esac ;;
   test)     npm test --silent ;;

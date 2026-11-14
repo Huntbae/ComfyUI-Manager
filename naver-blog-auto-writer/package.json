@@ -15,7 +15,7 @@
     "daily": "bash scripts/install-daily.sh",
     "daily-run": "bash scripts/daily.sh",
     "retry": "bash scripts/retry.sh",
-    "test": "python3 test/match-test.py && node test/retry-test.js && node test/open-writer-test.js && node test/relaunch-test.js && node test/clip-doctor-test.js && node test/editor-test.js",
+    "test": "python3 test/match-test.py && node test/retry-test.js && node test/open-writer-test.js && node test/relaunch-test.js && node test/clip-doctor-test.js && node test/clip-upload-test.js && node test/editor-test.js",
     "doctor": "node index.js doctor",
     "setup": "bash scripts/setup.sh"
   },
