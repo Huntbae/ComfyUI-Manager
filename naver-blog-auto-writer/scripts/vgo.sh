@@ -1,0 +1,111 @@
+#!/bin/bash
+# 동영상 편을 한 번에 끝까지: 로그인 확인 → 모으기 → 원고 → 올리기.
+#
+# 왜 있나: 단계마다 명령을 하나씩 받아 돌리고 출력을 되돌려 보내는 데
+# 하루가 갔다. 그동안 한 편도 올리지 못했다. 이 스크립트는 한 번에 끝까지 가고,
+# 막히면 그 자리에서 멈춰 고치는 데 필요한 것을 화면에 다 찍는다.
+# 그 화면 하나만 있으면 무엇을 고칠지 알 수 있게 하는 것이 목적이다.
+#
+#   kart vgo                 10편
+#   kart vgo 3               3편만
+#   kart vgo 10 --only-src --src "/Volumes/Mac Data"
+#   kart vgo 10 --redo ...   이미 올린 동영상 편까지 처음부터 다시
+#
+# 발행은 하지 않는다. 임시저장까지다.
+set -u
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$DIR" || exit 1
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+N=10
+if [[ "${1:-}" =~ ^[0-9]+$ ]]; then N="$1"; shift; fi
+
+# --redo: 이미 올린 동영상 편의 기록을 지우고 처음부터 다시 만든다.
+# (새 배경음악으로 다시 올리고 싶을 때. 네이버의 지난 글은 직접 지워야 한다.)
+REDO=0
+ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--redo" ]; then REDO=1; else ARGS+=("$a"); fi
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+step() { echo; echo "════════ $1 ════════"; }
+
+# 가장 최근 덤프의 report.txt 를 찍는다. 실패했을 때 무엇을 고칠지는 여기 있다.
+show_evidence() {
+  local d
+  d="$(ls -td out/debug/*/ 2>/dev/null | head -1)"
+  [ -n "$d" ] && [ -f "${d}report.txt" ] || return 0
+  echo
+  echo "──── 실패 순간의 화면 구조 (${d}) ────"
+  # 화면 텍스트는 길다. 버튼·입력칸·프레임 목록이 필요한 부분이다.
+  sed -n '/=== 버튼 목록 ===/,$p' "${d}report.txt" | grep -v 'toolbar-button\|insert-menu' | head -150
+}
+
+fail() {
+  echo
+  echo "❌ $1 단계에서 멈췄습니다."
+  show_evidence
+  echo
+  echo "이 터미널 화면을 처음부터 끝까지 그대로 보내주세요."
+  if [ "$1" = "첫 편 올리기" ] || [ "$1" = "나머지 올리기" ]; then
+    echo
+    echo "영상과 원고는 준비돼 있습니다. 다시 만들 필요 없이 올리기만 이어서 하려면:"
+    echo "    kart all --no-sync"
+  fi
+  exit 1
+}
+
+step "1/4  로그인과 동영상 업로드 창 확인"
+if ! node index.js doctor --video; then
+  # 여기서 끝내고 "kart login 하고 다시 돌리세요"라고 하면 한 번을 더 오가야 한다.
+  # 로그인 창을 바로 띄우고, 되면 이어간다.
+  echo
+  echo "글쓰기 화면에 못 들어갔습니다. 로그인 창을 띄웁니다."
+  echo "👉 뜨는 크롬 창에서 네이버에 로그인해 주세요 (5분 안에)."
+  node index.js login || { echo; echo "❌ 로그인을 확인하지 못했습니다. 다시 kart vgo 를 돌려주세요."; exit 1; }
+  node index.js doctor --video || {
+    echo
+    echo "❌ 로그인한 뒤에도 글쓰기 화면이 안 열립니다. 이 화면 전체를 보내주세요."
+    exit 1
+  }
+fi
+
+if [ "$REDO" = "1" ]; then
+  step "지난 동영상 편 기록 지우기 (--redo)"
+  python3 scripts/video_reset.py --yes || fail "기록 지우기"
+fi
+
+step "2/4  동영상 모으기 + 배경음악 (${N}편)"
+python3 scripts/collect_videos.py --bgm auto --max-articles "$N" "$@" \
+  || fail "동영상 모으기"
+
+step "3/4  원고 만들기"
+python3 scripts/make_video_articles.py || fail "원고 만들기"
+
+step "4/4  네이버에 임시저장"
+# --no-sync: 이 기기에서는 git 푸시가 아이디·비밀번호를 물어 멈춘다.
+# 한 편을 먼저 올려 본다. 되면 나머지를 이어서 올린다.
+# 올릴 것이 있는지 먼저 본다. 예전에는 올릴 것이 없어도 next 가 0 으로 끝나서
+# "✅ 첫 편이 올라갔습니다"를 찍었다. 아무것도 안 올리고 올렸다고 말한 것이다.
+LEFT="$(node index.js status 2>/dev/null | sed -n 's/.*남은 \([0-9][0-9]*\)편.*/\1/p' | head -1)"
+if [ "${LEFT:-0}" = "0" ]; then
+  echo "새로 올릴 원고가 없습니다. 이번 실행에서는 아무것도 올리지 않았습니다."
+  echo "(준비된 영상이 모두 이미 올린 편의 것이거나, 쓸 수 있는 영상이 남지 않았습니다)"
+  exit 0
+fi
+echo "새로 올릴 원고 ${LEFT}편"
+node index.js next --no-sync || fail "첫 편 올리기"
+
+if [ "$LEFT" -gt 1 ]; then
+  echo
+  echo "✅ 첫 편이 올라갔습니다. 나머지 $((LEFT - 1))편을 이어서 올립니다 (편 사이 90초)."
+  node index.js all --no-sync || fail "나머지 올리기"
+fi
+
+echo
+echo "════════ 끝 ════════"
+node index.js status 2>/dev/null | tail -15
+echo
+echo "네이버 글쓰기 화면에서 '저장' 옆의 숫자를 누르면 임시저장 목록이 열립니다."
+echo "발행은 하지 않았습니다. 영상에 나오는 얼굴을 확인한 뒤 직접 발행하세요."
