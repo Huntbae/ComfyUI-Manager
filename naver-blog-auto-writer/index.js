@@ -294,6 +294,36 @@ const headfulOn = () => !flag('headless');
 
   // 진단: 글을 쓰지 않고 에디터에 들어가 구조만 덤프한다.
   // 셀렉터가 안 맞을 때 뭘 고쳐야 하는지 알려면 실제 DOM이 필요하다.
+  // 네이버 클립 크리에이터의 화면 구조를 읽는다. 게시 버튼은 누르지 않는다.
+  // 클립은 올리면 바로 공개되므로, 추측으로 버튼을 누르는 코드를 쓰지 않으려고
+  // 실제 화면부터 읽는다 (src/clip.js).
+  if (cmd === 'clip-doctor') {
+    const { launchPersistent, closeKeepingLogin } = require('./src/browser');
+    const { clipDoctor } = require('./src/clip');
+    // 입력 화면(제목·설명·게시 버튼)은 영상을 넣은 뒤에야 나타난다.
+    // 클립 목록의 첫 영상을 쓴다. --no-upload 면 영상을 넣지 않고 앞 화면만 본다.
+    let videoPath = null;
+    if (!flag('no-upload')) {
+      try {
+        const plan = JSON.parse(fs.readFileSync(require('path').join(__dirname, 'state', 'clip_plan.json'), 'utf8'));
+        const first = (plan.items || []).find((it) => fs.existsSync(it.path));
+        if (first) videoPath = first.path;
+      } catch { /* 목록이 없으면 영상 없이 본다 */ }
+      if (!videoPath) console.log('(클립 목록이 없어 영상 없이 앞 화면만 봅니다. 먼저 kart clip plan 을 돌리면 입력 화면까지 읽습니다.)');
+    }
+    const { context } = await launchPersistent({ headful: headfulOn(), record: false });
+    const page = context.pages()[0] || (await context.newPage());
+    try {
+      await clipDoctor(page, { videoPath });
+    } catch (e) {
+      console.error(`확인 도중 오류: ${e.message.split('\n')[0]}`);
+      process.exitCode = 1;
+    } finally {
+      await closeKeepingLogin(context).catch(() => {});
+    }
+    return;
+  }
+
   if (cmd === 'doctor') {
     const { loadConfig } = queue;
     const cfg = loadConfig();
