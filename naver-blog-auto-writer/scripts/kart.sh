@@ -79,11 +79,13 @@ TXT
   clip)     # 네이버 클립 크리에이터 (clipcreators.naver.com)
             sub="${1:-}"; shift 2>/dev/null || true
             case "$sub" in
-              plan)   python3 scripts/clip_plan.py "$@" ;;
-              doctor) python3 scripts/clip_plan.py >/dev/null 2>&1
+              plan)   python3 scripts/clip_plan.py --dry-run "$@" ;;
+              doctor) python3 scripts/clip_plan.py --count 1 >/dev/null 2>&1
                       node index.js clip-doctor "$@" ;;
-              go)     # 목록을 새로 만들고(올린 것은 빠진다) 올려서 게시한다
-                      python3 scripts/clip_plan.py || exit 1
+              go)     # 다음 영상을 찾아(올린 것은 빠진다) 올려서 게시한다.
+                      # kart clip go 5  → 5개를 찾아 5개를 올린다
+                      n="10"; case "${1:-}" in ''|*[!0-9]*) ;; *) n="$1" ;; esac
+                      python3 scripts/clip_plan.py --count "$n" || exit 1
                       echo
                       node index.js clip-go "$@" ;;
               *)      echo "kart clip plan      클립에 올릴 영상 목록 (차량 영상만, 교육 영상 제외)"

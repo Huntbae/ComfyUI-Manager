@@ -334,11 +334,14 @@ const headfulOn = () => !flag('headless');
     const donePath = pathMod.join(__dirname, 'state', 'clip_done.json');
     let items = [];
     try { items = JSON.parse(fs.readFileSync(planPath, 'utf8')).items || []; } catch { /* 아래에서 안내 */ }
-    let done = { files: [], log: [] };
-    try { done = { files: [], log: [], ...JSON.parse(fs.readFileSync(donePath, 'utf8')) }; } catch { /* 처음 */ }
-    items = items.filter((it) => !done.files.includes(it.file) && fs.existsSync(it.path));
+    // 올린 영상은 내용 지문(id)과 원본 경로로 기억한다. kalli_v04.mp4 같은 파일
+    // 이름은 묶음마다 다시 쓰이므로 그것으로 기억하면 다른 영상을 건너뛰게 된다.
+    let done = { keys: [], sources: [], counts: {}, log: [] };
+    try { done = { ...done, ...JSON.parse(fs.readFileSync(donePath, 'utf8')) }; } catch { /* 처음 */ }
+    items = items.filter((it) => !done.keys.includes(it.id) && !done.sources.includes(it.source)
+      && fs.existsSync(it.path));
     if (!items.length) {
-      console.log('클립에 올릴 영상이 없습니다. kart clip plan 으로 목록을 확인하세요.');
+      console.log('클립에 올릴 영상이 없습니다. kart clip plan 으로 다음 영상을 찾아보세요.');
       process.exit(0);
     }
     const asked = Number(process.argv[3]);
@@ -374,8 +377,10 @@ const headfulOn = () => !flag('headless');
         process.exit(r.reason === 'publish_unverified' ? 2 : 1);
       }
       // 게시가 확인된 것만 적는다. 다시 돌려도 같은 영상이 두 번 올라가지 않게.
-      done.files.push(it.file);
-      done.log.push({ file: it.file, title: r.title, at: new Date().toISOString(), how: r.how });
+      done.keys.push(it.id);
+      done.sources.push(it.source);
+      if (it.vkw) done.counts[it.vkw] = (done.counts[it.vkw] || 0) + 1;   // 다음 제목 번호
+      done.log.push({ source: it.source, title: r.title, at: new Date().toISOString(), how: r.how });
       fs.mkdirSync(pathMod.dirname(donePath), { recursive: true });
       fs.writeFileSync(donePath, JSON.stringify(done, null, 1));
       ok += 1;
