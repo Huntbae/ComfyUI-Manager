@@ -30,3 +30,4 @@ state/video_used.json
 state/clip_plan.json
 state/clip_done.json
 videos_clip/
+state/video_fp.json

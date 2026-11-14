@@ -336,7 +336,7 @@ const headfulOn = () => !flag('headless');
     try { items = JSON.parse(fs.readFileSync(planPath, 'utf8')).items || []; } catch { /* 아래에서 안내 */ }
     // 올린 영상은 내용 지문(id)과 원본 경로로 기억한다. kalli_v04.mp4 같은 파일
     // 이름은 묶음마다 다시 쓰이므로 그것으로 기억하면 다른 영상을 건너뛰게 된다.
-    let done = { keys: [], sources: [], counts: {}, log: [] };
+    let done = { keys: [], sources: [], counts: {}, fps: [], log: [] };
     try { done = { ...done, ...JSON.parse(fs.readFileSync(donePath, 'utf8')) }; } catch { /* 처음 */ }
     items = items.filter((it) => !done.keys.includes(it.id) && !done.sources.includes(it.source)
       && fs.existsSync(it.path));
@@ -353,15 +353,28 @@ const headfulOn = () => !flag('headless');
     for (let i = 0; i < want; i += 1) {
       const it = items[i];
       console.log(`${'─'.repeat(56)}\n[${i + 1}/${want}] ${it.title}\n   ${it.file} · 폴더 '${it.theme}'`);
-      const { context } = await launchPersistent({ headful: headfulOn(), record: false });
-      const page = context.pages()[0] || (await context.newPage());
+      // 다시 해 볼 만한 실패면 창을 새로 띄워 두 번까지 다시 한다 (창이 닫힘·
+      // 연결이 끊김·잠들었다 깸). 다시 해도 소용없는 실패는 바로 멈춘다:
+      //   publish_unverified — 게시 버튼은 눌렀다. 이미 올라갔을 수 있어, 다시 하면
+      //                        같은 클립이 둘이 된다.
+      //   no_title_field·no_publish_button·no_file_input·no_upload_entry
+      //                      — 화면 구조가 예상과 다르다. 코드를 고쳐야 한다.
+      const STOP = new Set(['publish_unverified', 'no_title_field', 'no_publish_button',
+        'no_file_input', 'no_upload_entry']);
       let r;
-      try {
-        r = await clipUpload(page, it);
-      } catch (e) {
-        r = { ok: false, reason: 'error', hint: e.message.split('\n')[0] };
-      } finally {
-        await closeKeepingLogin(context).catch(() => {});
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const { context } = await launchPersistent({ headful: headfulOn(), record: false });
+        const page = context.pages()[0] || (await context.newPage());
+        try {
+          r = await clipUpload(page, it);
+        } catch (e) {
+          r = { ok: false, reason: 'error', hint: e.message.split('\n')[0] };
+        } finally {
+          await closeKeepingLogin(context).catch(() => {});
+        }
+        if (r.ok || STOP.has(r.reason) || attempt === 3) break;
+        console.log(`   ↻ ${r.reason} — 창을 새로 띄워 다시 합니다 (${attempt + 1}/3). 30초 뒤.`);
+        await new Promise((res) => setTimeout(res, 30_000));
       }
       if (!r.ok) {
         console.error(`\n❌ 실패: ${r.reason}`);
@@ -374,12 +387,14 @@ const headfulOn = () => !flag('headless');
           for (const line of r.dump) console.error(line);
         }
         console.error(`\n${ok}개 올렸고 ${i + 1}번째에서 멈췄습니다. 이 화면 전체를 보내주세요.`);
-        process.exit(r.reason === 'publish_unverified' ? 2 : 1);
+        // 2: 게시됐는지 모름(다시 하면 중복 위험) · 4: 화면 구조가 다름(고쳐야 함) · 1: 그 밖
+        process.exit(r.reason === 'publish_unverified' ? 2 : (STOP.has(r.reason) ? 4 : 1));
       }
       // 게시가 확인된 것만 적는다. 다시 돌려도 같은 영상이 두 번 올라가지 않게.
       done.keys.push(it.id);
       done.sources.push(it.source);
       if (it.vkw) done.counts[it.vkw] = (done.counts[it.vkw] || 0) + 1;   // 다음 제목 번호
+      if (it.fp) done.fps.push(it.fp);   // 다시 내보낸 같은 영상을 다음에 알아보려고
       done.log.push({ source: it.source, title: r.title, at: new Date().toISOString(), how: r.how });
       fs.mkdirSync(pathMod.dirname(donePath), { recursive: true });
       fs.writeFileSync(donePath, JSON.stringify(done, null, 1));

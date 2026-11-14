@@ -29,11 +29,13 @@
 import argparse
 import json
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import collect_videos as cv  # noqa: E402
+import fingerprint as vfp  # noqa: E402
 import make_video_articles as mva  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -89,6 +91,7 @@ def load_done():
     d.setdefault("keys", [])        # 올린 영상의 내용 지문
     d.setdefault("sources", [])     # 올린 영상의 원본 경로
     d.setdefault("counts", {})      # 제목 종류별로 몇 개 올렸나 (번호를 이어 붙이려고)
+    d.setdefault("fps", [])         # 올린 영상의 화면 지문 (다시 내보낸 같은 영상을 잡으려고)
     d.setdefault("log", [])
     return d
 
@@ -131,7 +134,8 @@ def main():
             if f.exists():
                 ready[v["source"]] = f
 
-    skipped = {"짧음": 0, "교육": 0, "모름": 0, "올림": 0, "없음": 0}
+    skipped = {"짧음": 0, "교육": 0, "모름": 0, "올림": 0, "같은 영상": 0, "없음": 0}
+    dupes = []
     pool = []
     for src in scan["vids"]:
         p = Path(src)
@@ -161,11 +165,21 @@ def main():
     order = sorted(groups, key=lambda t: (-len(groups[t]), t))
     ordered = first + round_robin(groups, order)
 
-    exe = cv.ffmpeg()
-    if not exe and not args.dry_run:
-        sys.exit("ffmpeg 을 찾지 못했습니다. bash scripts/setup.sh 를 먼저 돌리세요.")
+    exe, probe_exe = cv.ffmpeg(), cv.ffprobe()
+    if not exe or not probe_exe:
+        sys.exit("ffmpeg·ffprobe 을 찾지 못했습니다. bash scripts/setup.sh 를 먼저 돌리세요.")
+
+    # 이미 올린 영상의 화면 지문. 지문을 적기 전에 올린 것은 원본에서 다시 뜬다.
+    known = [f for f in done["fps"] if f]
+    have = {f.get("source") for f in known}
+    for src in done["sources"]:
+        if src not in have and Path(src).exists():
+            f = vfp.fingerprint(src, exe, probe_exe)
+            if f:
+                known.append({**f, "source": src})
 
     items, counts = [], dict(done["counts"])
+    looked, last = 0, time.monotonic()
     for x in ordered:
         if len(items) >= args.count:
             break
@@ -176,6 +190,22 @@ def main():
         key = cv._content_key(src)
         if not key or key in done_keys or any(it["id"] == key for it in items):
             skipped["올림" if key in done_keys else "없음"] += 1
+            continue
+        # 같은 영상을 다시 내보낸 것인지 화면으로 본다 (fingerprint.py 참고).
+        # 이미 올린 것과도, 이번에 고른 것과도 견준다.
+        looked += 1
+        if time.monotonic() - last > 15:
+            print(f"   … 같은 영상인지 보는 중 ({looked}개째, 고른 것 {len(items)}개)", flush=True)
+            last = time.monotonic()
+        f = vfp.fingerprint(src, exe, probe_exe)
+        if not f:
+            skipped["없음"] += 1
+            continue
+        twin = next((k for k in known if vfp.same_video(f, k)), None) \
+            or next((it["fp"] for it in items if vfp.same_video(f, it["fp"])), None)
+        if twin:
+            skipped["같은 영상"] += 1
+            dupes.append((src.name, Path(twin.get("source", "?")).name))
             continue
         t = mva.pick(x["product"], x["kind"])
         counts[t["vkw"]] = counts.get(t["vkw"], 0) + 1
@@ -198,6 +228,7 @@ def main():
             "kind": f"{x['product']}/{x['kind']}",
             "sec": min(sec, cv.MAX_SECONDS) if sec else None,
             "ready": str(ready[x["src"]]) if x["src"] in ready else None,
+            "fp": {**f, "source": x["src"]},
         })
 
     print(f"클립에 올릴 영상 {len(items)}개 (아직 안 올린 차량 영상 {len(pool)}개 가운데)\n")
@@ -216,13 +247,16 @@ def main():
         "모름": "무엇을 찍었는지 알 수 없는 폴더 (넣으려면 --include-unknown)",
         "올림": "이미 클립에 올린 영상",
         "짧음": f"읽을 수 없거나 {cv.MIN_SECONDS}초보다 짧은 영상",
+        "같은 영상": "이미 올렸거나 이번에 고른 영상과 화면이 같은 영상 (다시 내보낸 사본)",
         "없음": "원본을 읽을 수 없음 (드라이브가 꽂혀 있는지 확인)",
     }
     if any(skipped.values()):
         print("\n뺀 것:")
-        for k in ("교육", "모름", "올림", "짧음", "없음"):
+        for k in ("교육", "모름", "올림", "같은 영상", "짧음", "없음"):
             if skipped[k]:
                 print(f"  {skipped[k]:3}개  {why[k]}")
+        for a, b in dupes[:10]:
+            print(f"        {a}  =  {b}")
 
     if args.dry_run:
         print("\n(--dry-run 이므로 영상을 만들지 않았고 목록도 저장하지 않았습니다)")
@@ -256,6 +290,9 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({"items": good}, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n목록 {len(good)}개 → {OUT}")
+    # 고를 것이 하나도 없으면 3 으로 끝낸다. kart clip all 이 이것을 보고 멈춘다.
+    if not good:
+        sys.exit(3)
 
 
 if __name__ == "__main__":
