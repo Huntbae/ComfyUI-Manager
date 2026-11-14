@@ -21,7 +21,7 @@ const upload = (mode) => `<body><header><a href="/web/dashboard">대시보드</a
   <button onclick="document.getElementById('f').click()">동영상 선택</button>
   <div id="form" style="display:none">
     ${mode === 'notitle' ? '' : '<input id="ttl" placeholder="제목을 입력해 주세요" maxlength="20">'}
-    <textarea id="desc" placeholder="내용을 입력해 주세요"></textarea>
+    <textarea id="desc" placeholder="내용을 입력해 주세요"${mode === 'shortdesc' ? ' maxlength="60"' : ''}></textarea>
     <input id="tag" placeholder="태그 입력" onkeydown="if(event.key==='Enter'){window.TAGS=(window.TAGS||[]).concat(this.value);this.value=''}">
     <button id="tmp" onclick="window.TEMP=1">임시저장</button>
     <button id="pub" disabled onclick="publish()">게시</button>
@@ -45,7 +45,9 @@ const CONTENT = `<body><h1>콘텐츠</h1><p id="r"></p><script>document.getEleme
   fs.mkdirSync(path.dirname(VID), { recursive: true });
   if (!fs.existsSync(VID)) fs.writeFileSync(VID, Buffer.alloc(1024));
   const item = { path: VID, file: 'test_clip.mp4', title: '칼리 주행 영상 1 — 클랜헌트가 개발한 1인승 전기차',
-    description: '혼자 타는 전기차는 어떻게 달릴까요?', tags: ['칼리', '사이클카트', '1인승전기차'] };
+    description: '혼자 타는 전기차는 어떻게 달릴까요?\n\n칼리(Kalli)는 클랜헌트가 기획하고 개발한 1인승 전기차입니다. 공인시험 33종을 거쳤습니다.\n\n궁금한 점은 댓글로 남겨 주세요.',
+    description_short: '혼자 타는 전기차는 어떻게 달릴까요? 궁금한 점은 댓글로 남겨 주세요.',
+    tags: ['칼리', '사이클카트', '1인승전기차'] };
   const b = await chromium.launch({ executablePath: findChromium(), headless: true });
   const scenario = async (mode, opts = {}) => {
     const ctx = await b.newContext();
@@ -64,6 +66,7 @@ const CONTENT = `<body><h1>콘텐츠</h1><p id="r"></p><script>document.getEleme
   };
   const a = await scenario('ok');
   const c = await scenario('confirm');
+  const sd = await scenario('shortdesc');
   const n = await scenario('notitle', { titleTimeout: 8_000 });
   const l = await scenario('locked', { uploadTimeout: 9_000 });
   await b.close();
@@ -71,6 +74,8 @@ const CONTENT = `<body><h1>콘텐츠</h1><p id="r"></p><script>document.getEleme
     ['영상을 넣고 게시까지 가나', a.r.ok === true && !!a.pub],
     ['제목이 칸의 최대 글자수에 맞게 들어가나', !!a.pub && a.pub.title === item.title.slice(0, 20)],
     ['설명과 태그가 들어가나', !!a.pub && a.pub.desc.includes('혼자 타는') && a.pub.tags.length === 3],
+    ['칸이 넉넉하면 긴 설명(제품 소개 포함)이 들어가나', !!a.pub && a.pub.desc.includes('공인시험 33종')],
+    ['칸이 좁으면 자르지 않고 짧은 판을 통째로 넣나', !!sd.pub && sd.pub.desc === item.description_short],
     ['임시저장·취소는 누르지 않나', a.cancel === false && c.cancel === false],
     ['확인 창이 떠도 확인을 눌러 게시하나', c.r.ok === true && !!c.pub],
     ['제목칸을 못 찾으면 게시하지 않고 멈추나', n.r.ok === false && n.r.reason === 'no_title_field' && n.pub === null],

@@ -402,9 +402,17 @@ async function clipUpload(page, item, { log = console.log, uploadTimeout = 900_0
     const desc = fields.find((i) => i !== tagField && /내용|설명|소개|본문|문구|description|caption/i.test(hintOf(i)));
     const hashtags = (item.tags || []).slice(0, 8).map((t) => `#${t}`).join(' ');
     if (desc) {
-      // 태그칸이 따로 없으면 설명 끝에 해시태그를 붙인다
-      const typed = await typeInto(active, desc, tagField ? item.description : `${item.description}\n${hashtags}`);
-      log(`   설명: ${typed.length}자${tagField ? '' : ' (해시태그 포함)'}`);
+      // 칸에 들어가는 가장 긴 설명을 고른다. 잘라서 문장 중간에 끊기는 것보다
+      // 짧은 판을 통째로 넣는 편이 낫다. 태그칸이 따로 없으면 해시태그를 끝에 붙인다.
+      const max = Number(desc.max) || 0;
+      const full = item.description || '';
+      const short = item.description_short || full;
+      const options = tagField
+        ? [full, short]
+        : [`${full}\n\n${hashtags}`, `${short}\n${hashtags}`, full, short];
+      const pickText = options.find((x) => !max || x.length <= max) || short;
+      const typed = await typeInto(active, desc, pickText);
+      log(`   설명: ${typed.length}자${max ? ` (칸 최대 ${max}자)` : ''}${/#/.test(typed) ? ' · 해시태그 포함' : ''}`);
     } else {
       log('   설명칸: 찾지 못해 건너뜀');
     }

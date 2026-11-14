@@ -38,7 +38,22 @@ VIDEOS = ROOT / "videos"
 # 클립 제목은 짧아야 한다. 정확한 상한은 화면에서 읽은 뒤 맞춘다 (kart clip doctor).
 TITLE_MAX = 40
 
-CTA = "더 많은 영상과 이야기는 블로그에 있습니다."
+# 클립 설명에 넣는 제품 소개. 블로그 원고의 긴 설명(mva.FACTS)을 두세 문장으로 줄인 것.
+# 여기도 확정된 사실만 쓴다 — 가격·주행거리·'최초' 같은 말은 없다.
+ABOUT = {
+    "edu": ("에듀카트(eDu Kart)는 클랜헌트가 만든 교육용 전기카트 키트입니다. "
+            "부품 상태에서 직접 조립해 보면서 전기차가 어떻게 움직이는지를 배웁니다."),
+    "kalli": ("칼리(Kalli)는 클랜헌트가 기획하고 개발한 1인승 전기차입니다. "
+              "공인시험 33종을 거쳐 번호판을 달고 도로를 달립니다. "
+              "최고속도 60km/h, 교환식 배터리를 씁니다."),
+    "none": ("클랜헌트(ClanHunts)는 교육용 전기카트 '에듀카트'와 1인승 전기차 "
+             "'칼리(Kalli)'를 직접 기획하고 개발합니다."),
+}
+
+
+def cta(blog_id):
+    where = f" (blog.naver.com/{blog_id})" if blog_id else ""
+    return f"궁금한 점은 댓글로 남겨 주세요. 더 많은 영상과 개발 이야기는 블로그{where}에 있습니다."
 
 
 def nfc(s):
@@ -64,6 +79,7 @@ def main():
     if not plan or not plan.get("articles"):
         sys.exit(f"영상 계획이 없습니다: {PLAN}\n먼저 kart vgo 로 블로그에 올리세요.")
     posted = {nfc(x) for x in load(PROGRESS, {}).get("posted", [])}
+    blog_id = load(ROOT / "config.json", {}).get("blogId", "")
     done = set(load(DONE, {}).get("files", []))
 
     items, skipped = [], {"교육": 0, "모름": 0, "블로그 미게시": 0, "이미 올림": 0, "파일 없음": 0}
@@ -98,7 +114,11 @@ def main():
                 "path": str(f),
                 "vkw": t["vkw"],
                 "tail": tail,
-                "description": f"{t['hook']} {CTA}",
+                # 설명은 두 가지 길이로 준비한다. 클립의 설명칸이 몇 자까지 받는지는
+                # 화면에서 읽어야 안다. 올리는 쪽이 칸에 들어가는 가장 긴 것을 고른다.
+                # 잘라서 문장 중간에 끊기는 것보다 짧은 판을 통째로 넣는 편이 낫다.
+                "description": f"{t['hook']}\n\n{ABOUT[product]}\n\n{cta(blog_id)}",
+                "description_short": f"{t['hook']} {cta(blog_id)}",
                 "tags": tags,
                 "theme": theme,
                 "kind": f"{product}/{kind}",
@@ -136,6 +156,11 @@ def main():
         "이미 올림": "이미 클립에 올린 영상",
         "파일 없음": "videos/ 에 파일이 없음 (kart videos 로 다시 만들어야 한다)",
     }
+    if items:
+        print("\n설명은 이렇게 들어갑니다 (첫 영상):")
+        for line in items[0]["description"].splitlines():
+            print(f"    {line}")
+        print("    " + " ".join(f"#{t}" for t in items[0]["tags"]))
     if any(skipped.values()):
         print("\n뺀 것:")
         for k, n in skipped.items():
