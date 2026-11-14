@@ -1,0 +1,170 @@
+<meta charset="utf-8"><title>가짜 스마트에디터</title>
+<style>body{font:14px sans-serif}.se-text-paragraph{border:1px solid #ccc;padding:6px;min-height:20px}
+.se-component.se-image{border:2px solid green;padding:4px;margin:4px 0}
+.se-placeholder{color:#bbb}
+.se-popup-alert-confirm{position:fixed;top:30%;left:30%;background:#fff;border:2px solid #333;padding:20px;z-index:9}
+.se-popup-dim{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:8}</style>
+<div id="bar">
+  <!-- 글자와 클래스는 실제 네이버 덤프(2026-11-10)에서 그대로 옮겼다.
+       툴바 버튼의 글자가 '동영상 동영상 추가' 라는 점이 중요하다 —
+       업로드 창의 '동영상 추가' 버튼을 글자로 찾으면 이 툴바 버튼이 먼저 걸린다. -->
+  <button data-name="image" class="se-image-toolbar-button" onclick="document.getElementById('fi').click()">사진 사진 추가</button>
+  <button data-name="video" class="se-video-toolbar-button" onclick="openVideoLayer()">동영상 동영상 추가</button>
+  <button data-name="file" class="se-file-toolbar-button">파일 파일 추가</button>
+  <button data-click-area="tpb.save" id="save" onclick="doSave()">저장 3</button>
+  <!-- 네이버는 임시저장 개수를 저장 버튼 옆의 별도 버튼에 그리고, 누르면 목록이 열린다.
+       100개를 넘으면 "99+" 로만 보여준다. 시험에서 SATURATED 를 켜면 그 상황이 된다. -->
+  <button data-click-area="tpb*s.count" id="cnt" style="display:none" onclick="toggleDrafts()"></button>
+  <button data-click-area="tpb.publish">발행</button>
+</div>
+<div id="drafts" style="display:none;position:fixed;right:0;top:40px;background:#fff;border:1px solid #999;padding:8px;z-index:20">
+  <button aria-label="닫기" onclick="toggleDrafts()">x</button>
+  <ul id="dlist"></ul>
+</div>
+<!-- 네이버는 저장하면 안내를 띄운다. 개수를 못 읽는 스킨에서는 이것만이 증거다. -->
+<div id="toast"></div>
+<input id="fi" type="file" style="display:none" onchange="addImg()">
+<input id="fv" type="file" accept="video/*" style="display:none" onchange="videoUploaded()">
+<!-- 네이버 동영상 업로드 레이어 흉내:
+     추가 버튼 → 파일창 → 업로드(완료 버튼이 잠겨 있다) → 제목 필수 → 완료 -->
+<div id="vlayer" style="display:none;position:fixed;top:20%;left:25%;background:#fff;
+     border:2px solid #06c;padding:16px;z-index:10">
+  <button class="layer_add_btn" onclick="document.getElementById('fv').click()">동영상 추가</button>
+  <input class="se-video-title" placeholder="제목을 입력하세요" style="display:none">
+  <button id="vdone" disabled onclick="videoDone()">완료</button>
+</div>
+<div class="se-container" id="doc"></div>
+<script>
+// 네이버 실제 DOM 흉내: 제목칸이 비어 있어도 플레이스홀더 "제목" 이 들어 있다.
+// innerText 를 그대로 읽으면 빈 제목이 통과해 버리는 사고가 여기서 재현된다.
+function blankDoc() {
+  document.getElementById('doc').innerHTML =
+    '<div class="se-section-documentTitle"><div class="se-module-text se-is-empty">'
+    + '<div class="se-text-paragraph" contenteditable><span class="se-placeholder">제목</span></div>'
+    + '</div></div>'
+    + '<div class="se-component se-text"><div class="se-text-paragraph" contenteditable></div></div>';
+}
+blankDoc();
+
+let n = 3;
+function stampNow(offsetMin){
+  const d = new Date(Date.now() + (offsetMin||0)*60000), p=(x)=>String(x).padStart(2,'0');
+  return d.getFullYear()+'.'+p(d.getMonth()+1)+'.'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function addDraftRow(title, stamp){
+  const li=document.createElement('li');
+  li.innerHTML='<a><span class="t"></span> <span class="d"></span></a>';
+  li.querySelector('.t').textContent=title; li.querySelector('.d').textContent=stamp;
+  document.getElementById('dlist').prepend(li);
+}
+function toggleDrafts(){
+  const d=document.getElementById('drafts'); d.style.display = d.style.display==='none' ? 'block' : 'none';
+}
+function saturate(){
+  // 임시저장이 100개를 넘은 상태: 저장 버튼에는 숫자가 없고 옆 버튼은 99+ 에서 멈춘다.
+  window.SATURATED = true;
+  document.getElementById('save').innerText='저장';
+  const c=document.getElementById('cnt'); c.style.display='inline'; c.innerText='99+';
+}
+function doSave(){
+  if(window.BREAK_SAVE) return;
+  n++;
+  if(!window.SATURATED) document.getElementById('save').innerText='저장 '+n;
+  document.getElementById('toast').innerText='임시저장되었습니다';
+  const t=(document.querySelector('.se-section-documentTitle .se-text-paragraph').innerText||'').trim();
+  addDraftRow(t, stampNow(0));
+}
+function openVideoLayer(){
+  document.getElementById('vlayer').style.display='block';
+}
+function videoUploaded(){
+  // 실제로는 업로드에 시간이 걸린다. 완료 버튼이 잠겨 있다가 풀리는 것이 핵심이다.
+  document.querySelector('.se-video-title').style.display='inline';
+  setTimeout(()=>{ document.getElementById('vdone').disabled = false; },
+             window.VIDEO_UPLOAD_MS === undefined ? 800 : window.VIDEO_UPLOAD_MS);
+}
+function videoDone(){
+  const title = document.querySelector('.se-video-title').value || '';
+  if (!title) return;                     // 네이버도 제목 없이는 안 넘어간다
+  window.LAST_VIDEO_TITLE = title;
+  document.getElementById('vlayer').style.display='none';
+  document.querySelector('.se-video-title').value='';
+  document.querySelector('.se-video-title').style.display='none';
+  document.getElementById('vdone').disabled = true;
+  const d=document.createElement('div'); d.className='se-component se-video';
+  d.textContent='[동영상 '+title+']';
+  document.getElementById('doc').appendChild(d);
+  const p=document.createElement('div'); p.className='se-component se-text';
+  p.innerHTML='<div class="se-text-paragraph" contenteditable></div>';
+  document.getElementById('doc').appendChild(p);
+  p.querySelector('.se-text-paragraph').focus();
+}
+function addImg(){
+  const d=document.createElement('div'); d.className='se-component se-image';
+  d.innerHTML='[사진]'
+    + '<div class="se-module se-module-text se-caption se-is-empty" style="display:none">'
+    + '<div class="se-text-paragraph" contenteditable><span class="se-placeholder">사진 설명을 입력하세요.</span></div>'
+    + '</div>';
+  document.querySelector('.se-container').appendChild(d);
+  const p=document.createElement('div'); p.className='se-text-paragraph'; p.contentEditable=true;
+  const w=document.createElement('div'); w.className='se-component se-text'; w.appendChild(p);
+  document.querySelector('.se-container').appendChild(w); p.focus();
+}
+
+// 사진을 눌러야 캡션칸이 나타난다 (네이버 실제 동작)
+document.addEventListener('click', (e) => {
+  const img = e.target.closest && e.target.closest('.se-component.se-image');
+  if (img) { const c = img.querySelector('.se-caption'); if (c) c.style.display = 'block'; }
+});
+
+// 복구 팝업 — 네이버가 글 쓰는 도중에도 띄운다. 확인을 누르면 지금 글이 덮인다.
+function showRecovery(){
+  if (document.querySelector('.se-popup-alert-confirm')) return;
+  const dim=document.createElement('div'); dim.className='se-popup-dim'; document.body.appendChild(dim);
+  const pop=document.createElement('div'); pop.className='se-popup-alert-confirm';
+  pop.innerHTML='<p>작성 중인 글이 있습니다. 이어서 작성하시겠습니까?</p>'
+    +'<button class="se-popup-button-cancel">취소</button>'
+    +'<button class="se-popup-button-confirm">확인</button>';
+  document.body.appendChild(pop);
+  pop.querySelector('.se-popup-button-cancel').onclick=closeRecovery;
+  pop.querySelector('.se-popup-button-confirm').onclick=closeRecovery;
+  pop.querySelector('.se-popup-button-confirm').focus(); // 포커스를 뺏는다
+}
+function closeRecovery(){
+  document.querySelectorAll('.se-popup-alert-confirm, .se-popup-dim').forEach(e=>e.remove());
+}
+
+function unplaceholder(el){
+  const t = el && el.closest && el.closest('.se-section-documentTitle, .se-caption');
+  if (!t) return;
+  t.querySelectorAll('.se-placeholder').forEach(s=>s.remove());
+  const mod = t.classList.contains('se-caption') ? t : t.querySelector('.se-module-text');
+  mod?.classList.remove('se-is-empty');
+}
+// 실제 에디터는 제목칸에 포커스가 들어오면 플레이스홀더를 감춘다
+document.addEventListener('focusin', (e) => unplaceholder(e.target));
+document.addEventListener('click', (e) => unplaceholder(e.target));
+
+// 실제 에디터에서 난 사고: 제목칸을 클릭하자마자 치면 첫 글자가 사라진다
+let titleInputs = 0;
+function maybeSwallow(el){
+  const t = el && el.closest && el.closest('.se-section-documentTitle');
+  if (!t || !window.SWALLOW_FIRST) return;
+  titleInputs += 1;
+  if (titleInputs !== 1) return;
+  const p = t.querySelector('.se-text-paragraph');
+  p.textContent = (p.textContent || '').slice(1);
+  const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+}
+
+let typed = 0;
+document.addEventListener('input', (e) => {
+  unplaceholder(e.target);
+  maybeSwallow(e.target);
+  typed += 1;
+  // 에디터가 스스로 리로드돼 문서가 통째로 비워지는 사고 재현
+  if (window.WIPE_AT && typed === window.WIPE_AT) { blankDoc(); showRecovery(); }
+  else if (window.POPUP_AT && typed === window.POPUP_AT) { showRecovery(); }
+});
+</script>

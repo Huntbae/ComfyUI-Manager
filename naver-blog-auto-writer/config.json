@@ -1,0 +1,23 @@
+{
+  "sourceDir": "./articles",
+  "blogId": "huntbae",
+  "imagedir": "./images",
+  "imageExts": [".jpg", ".jpeg", ".png", ".webp", ".gif"],
+  "topicPicker": {
+    "_주석": "queries=검색할 주제어, signalWords=제목에 들어가면 가점. 니치에 맞게 자유롭게 고치세요.",
+    "queries": [
+      "전기차 만들기",
+      "전동카트",
+      "카트 조립",
+      "아두이노 자동차",
+      "방과후 코딩 수업",
+      "사이클카트",
+      "골프카트 개조"
+    ],
+    "signalWords": [
+      "무료", "초보", "따라하기", "만들기", "DIY", "조립",
+      "후기", "비교", "추천", "가격", "방과후", "수업", "체험", "직접"
+    ],
+    "maxPerQuery": 50
+  }
+}
